@@ -1,10 +1,13 @@
 ﻿using Microsoft.AspNetCore.Diagnostics.HealthChecks;
-using Microsoft.AspNetCore.Mvc.Razor;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.Razor;
+using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Options;
+using Microsoft.OpenApi.Models;
+using StreamServer.Interfaces.Services;
+using StreamServer.Services;
 using System.Reflection;
 using System.Text.Json.Serialization;
-using Microsoft.OpenApi.Models;
 
 namespace StreamServer;
 
@@ -35,7 +38,7 @@ public class Startup : IStartup
         services.AddHealthChecks();
         services.AddSwaggerGen(c =>
         {
-            c.SwaggerDoc("v1", new OpenApiInfo { Title = "Innoku Management API", Version = "v1" });
+            c.SwaggerDoc("v1", new OpenApiInfo { Title = "Streaming API", Version = "v1" });
             //c.SchemaFilter<SwaggerSchemaFilter>();
             //c.OperationFilter<SwaggerOperationFilter>();
 
@@ -192,7 +195,7 @@ public class Startup : IStartup
 
         #endregion
 
-        //services.RegisterServices(Configuration);
+        services.AddServices(Configuration);
 
         Init(services.BuildServiceProvider());
     }
@@ -200,7 +203,7 @@ public class Startup : IStartup
     // This method gets called by the runtime. Use this method to configure the HTTP request pipeline.
     public void Configure(WebApplication app, IWebHostEnvironment env)
     {
-        app.UseRequestLocalization(app.Services.GetRequiredService<IOptions<RequestLocalizationOptions>>().Value);
+        //app.UseRequestLocalization(app.Services.GetRequiredService<IOptions<RequestLocalizationOptions>>().Value);
 
         if (env.IsDevelopment())
         {
@@ -208,7 +211,7 @@ public class Startup : IStartup
         }
 
         app.UseSwagger();
-        app.UseSwaggerUI(c => c.SwaggerEndpoint("/swagger/v1/swagger.json", "Innoku Management v1"));
+        app.UseSwaggerUI(c => c.SwaggerEndpoint("/swagger/v1/swagger.json", "Streaming API v1"));
 
         app.UseHttpsRedirection();
 
@@ -225,6 +228,18 @@ public class Startup : IStartup
             context.Request.EnableBuffering();
             return next();
         });
+
+        // Servir arquivos HLS
+        app.UseStaticFiles(new StaticFileOptions
+        {
+            FileProvider = new PhysicalFileProvider(
+                Path.Combine(Directory.GetCurrentDirectory(), "hls")),
+            RequestPath = "/hls",
+            ServeUnknownFileTypes = true
+        });
+
+        // Servir wwwroot (player)
+        app.UseStaticFiles();
 
         app.UseEndpoints(endpoints =>
         {
@@ -243,6 +258,9 @@ public class Startup : IStartup
 
     private void Init(IServiceProvider serviceProvider)
     {
-        
+        Task.Run(async () =>
+        {
+            await serviceProvider.GetRequiredService<IFFmpegService>().SetExecutablesPathAsync();
+        }).Wait();
     }
 }

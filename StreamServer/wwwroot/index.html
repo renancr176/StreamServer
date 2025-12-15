@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html>
+  <header>
+  </header>
+  <body>
+      <h2>Player HLS</h2>
+
+      <select id="videoList"></select><select id="tracks"></select>
+
+      <br /><br />
+
+      <video id="video" class="video-js vjs-default-skin" width="600" controls></video>
+      <audio id="video-track" controls>
+      </audio>
+
+      <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+
+      <script>
+          var hasPlayedOnce = false;
+          var videoPlaying = false;
+          var video = document.getElementById("video");
+          var tracks = document.getElementById("tracks");
+          var videotrack = document.getElementById("video-track");
+
+          video.addEventListener('play', (event) => {
+              videotrack.play();
+              videoPlaying = true;
+              if (!hasPlayedOnce) {
+                  hasPlayedOnce = true;
+              } else {
+                  videotrack.currentTime = video.currentTime;
+              }
+              videotrack.play();
+          });
+          video.addEventListener('pause', (event) => {
+              videoPlaying = false;
+              videotrack.currentTime = video.currentTime;
+              videotrack.pause();
+          });
+          
+          video.addEventListener('volumechange', (event) => {
+              videotrack.volume = video.volume;
+          });
+
+          videotrack.addEventListener('play', (event) => {
+              video.play();
+              videoPlaying = true;
+              if (!hasPlayedOnce) {
+                  hasPlayedOnce = true;
+              } else {
+                  videotrack.currentTime = video.currentTime;
+              }
+          });
+          videotrack.addEventListener('pause', (event) => {
+              videoPlaying = false;
+              videotrack.currentTime = video.currentTime;
+              video.pause();
+          });
+          videotrack.addEventListener('volumechange', (event) => {
+              videotrack.volume = video.volume;
+          });
+
+          tracks.onchange = () => setTrack();
+
+          async function loadVideos() {
+              const res = await fetch("Streaming/Videos", {});
+
+              const data = await res.json();
+
+              const select = document.getElementById("videoList");
+              select.innerHTML = "";
+
+              data.forEach((v) => {
+                  const opt = document.createElement("option");
+                  opt.value = v.playlist;
+                  opt.textContent = v.name;
+                  select.appendChild(opt);
+              });
+
+              select.onchange = () => play(select.value);
+
+              if (data.length > 0) play(data[0]);
+          }
+
+          function play(src) {
+              debugger;
+              videotrack.src = "https://localhost:7047" + src.tracks[0];
+              videotrack.load();
+
+              tracks.innerHTML = '';
+              for (var i = 0; i < src.tracks.length; i++) {
+                  var option = document.createElement("option");
+                  option.text = src.tracks[i];
+                  option.value = src.tracks[i];
+                  option.selected = i == 0;
+                  tracks.appendChild(option);
+              }              
+
+              setTrack();
+
+              if (Hls.isSupported()) {
+                  var hls = new Hls({
+                      xhrSetup: function (xhr) { },
+                  });
+
+                  hls.loadSource(src.playlist);
+                  hls.attachMedia(video);
+              } else {
+                  video.src = src.playlist;
+              }
+          }
+
+          function setTrack() {
+              if (videoPlaying) {
+                  video.pause();
+              }
+
+              var audioSource = document.createElement("source");
+              audioSource.src = tracks.value;
+              audioSource.type = "audio/mp4";
+              videotrack.innerHTML = "";
+              videotrack.appendChild(audioSource);
+              videotrack.src = tracks.value;
+              videotrack.load();
+              videotrack.currentTime = video.currentTime;
+
+              if (videoPlaying) {
+                  video.play();
+                  videotrack.play();
+              }
+          }
+
+          loadVideos();
+      </script>
+  </body>
+</html>
