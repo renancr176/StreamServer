@@ -113,7 +113,6 @@ namespace StreamServer.Controllers
                 return BadRequest(baseResponse);
             }
 
-            
             var validExtensions = new List<string>()
             {
                 ".mpeg", ".mp4", ".mkv", ".avi"
@@ -139,7 +138,7 @@ namespace StreamServer.Controllers
 
                 var processVideoArguments = new StringBuilder();
 
-                if (mediaInfo.AudioStreams.Count() > 1)
+                if (mediaInfo.AudioStreams.Count() > 1 && request.ExtractAudioTracks)
                 {
                     processVideoArguments.Append(
                         $"-map 0:v:0 -codec: copy -an -hls_time 10 -hls_playlist_type vod \"{Path.Combine(folderName, "playlist.m3u8")}\"");
@@ -206,7 +205,8 @@ namespace StreamServer.Controllers
         {
             var hlsPath = Path.Combine(Directory.GetCurrentDirectory(), "hls");
 
-            var directories = Directory.GetDirectories(hlsPath);
+            var directories = Directory.GetDirectories(hlsPath)
+                .Where(d => Directory.GetFiles(d).Any(file => file.EndsWith(".m3u8")));
 
             var videos = new List<VideoReponse>();
 
