@@ -80,6 +80,7 @@
         var videoPlaying = false;
         var videoFullscreen = false;
         var videoList = [];
+        var videoSelected = undefined;
 
         $(document).ready(function () {
             $("#play-pause #pause").hide();
@@ -109,7 +110,7 @@
 
                 hlsAudio.loadSource($(this).val());
                 hlsAudio.attachMedia($("#video-track")[0]);
-                $("#video-track")[0].currentTime = $("#video")[0].currentTime;
+                syncAudioToVideo();
 
                 if (wasPlaying) {
                     $("#play-pause").trigger("click");
@@ -127,6 +128,7 @@
                     videoPlaying = true;
                     $("#play-pause #play").hide();
                     $("#play-pause #pause").show();
+                    syncAudioToVideo(true);
                     $("#video")[0].play();
                     $("#video-track")[0].play();
                 }
@@ -184,7 +186,6 @@
 
             function loadVideos() {
                 getVideos(function (videos) {
-                    debugger;
                     videoList = videos;
                     $("#videoList").empty();
 
@@ -198,6 +199,7 @@
             }
 
             function play(src) {
+                videoSelected = src;
                 $("#tracks").empty();
                 for (var i = 0; i < src.tracks.length; i++) {
                     let trackName = src.tracks[i].replace(`/${src.tracks[i].split('/').pop()}`, '').split('/').pop();
@@ -250,6 +252,7 @@
             }
 
             function setVideoCurrentTime() {
+                syncAudioToVideo();
                 let currentTime = $("#video")[0].currentTime;
                 $("#video-played-time").text(`${formatTime(currentTime)}`);
                 $("#video-timer").val(`${currentTime}`);
@@ -268,6 +271,18 @@
                 minutes = (minutes < 10) ? "0" + minutes : minutes;
                 seconds = (seconds < 10) ? "0" + seconds : seconds;
                 return minutes + ":" + seconds;
+            }
+
+            function syncAudioToVideo(onStart = false) {
+                if (videoSelected.tracks.length > 0) {
+                    let videoCt = $("#video")[0].currentTime;
+                    let audioCt = $("#video-track")[0].currentTime;
+                    let diff = videoCt - audioCt;
+                    //console.log(`Video ct: ${videoCt}`, `Audio ct: ${audioCt}`, `ct diff ${diff}`);
+                    if (diff >= 0.07 || diff <= 0.07 || onStart) {
+                        $("#video-track")[0].currentTime = $("#video")[0].currentTime + 0.06;
+                    }
+                }
             }
         });
             

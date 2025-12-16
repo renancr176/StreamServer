@@ -229,6 +229,9 @@ public class Startup : IStartup
             return next();
         });
 
+        if (!Directory.Exists(Path.Combine(Directory.GetCurrentDirectory(), "hls")))
+            Directory.CreateDirectory(Path.Combine(Directory.GetCurrentDirectory(), "hls"));
+
         // Servir arquivos HLS
         app.UseStaticFiles(new StaticFileOptions
         {
