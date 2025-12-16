@@ -11,6 +11,10 @@
             margin: auto auto;
             height: calc(100vh - 100px);
         }
+        body {
+            background: black;
+            color: white;
+        }
     </style>
 </header>
 <body>
@@ -35,7 +39,7 @@
                 <audio id="video-track" controls></audio>
             </div>
         </div>
-        <div class="row bg-secondary pt-1 pb-1">
+        <div class="row pt-1 pb-1">
             <div class="col-auto">
                 <button id="next" class="btn btn-primary disabled">
                     <i class="fa-solid fa-angle-left"></i>
@@ -54,13 +58,13 @@
                 <span class="text-white"><span id="video-played-time">00:00</span>/<span id="video-duration">00:00</span></span>
             </div>
             <div class="col-auto">
-                <button id="toggle-screen" class="btn btn-primary">
+                <button id="toggle-screen" class="btn btn-primary disabled">
                     <i id="full-screen" class="fa-solid fa-expand"></i>
                     <i id="exit-full-screen" class="fa-solid fa-compress"></i>
                 </button>
             </div>
             <div class="col-auto">
-                <button id="next" class="btn btn-primary disabled">
+                <button id="next" class="btn btn-primary disabled" disabled="disabled">
                     <i class="fa-solid fa-angle-right"></i>
                 </button>
             </div>
@@ -75,16 +79,28 @@
         var hasPlayedOnce = false;
         var videoPlaying = false;
         var videoFullscreen = false;
+        var videoList = [];
 
         $(document).ready(function () {
             $("#play-pause #pause").hide();
             $("#toggle-screen #exit-full-screen").hide();
             loadVideos();
 
+            $("#videoList").change(function () {
+                if (videoPlaying) {
+                    $("#play-pause").trigger("click");
+                }
+
+                var src = videoList.find(x => x.playlist == $(this).val());
+                if (src) {
+                    play(src);
+                }
+            });
+
             $("#tracks").change(function () {
                 let wasPlaying = videoPlaying;
                 if (wasPlaying) {
-                    $("#play-pause").click();
+                    $("#play-pause").trigger("click");
                 }
 
                 var hlsAudio = new Hls({
@@ -96,7 +112,7 @@
                 $("#video-track")[0].currentTime = $("#video")[0].currentTime;
 
                 if (wasPlaying) {
-                    $("#play-pause").click();
+                    $("#play-pause").trigger("click");
                 }
             });
 
@@ -154,7 +170,6 @@
                 }
             });
 
-            
             function getVideos(callback) {
                 $.ajax({
                     url: "Streaming/Videos",
@@ -169,6 +184,8 @@
 
             function loadVideos() {
                 getVideos(function (videos) {
+                    debugger;
+                    videoList = videos;
                     $("#videoList").empty();
 
                     videos.forEach((video) => {
@@ -183,9 +200,7 @@
             function play(src) {
                 $("#tracks").empty();
                 for (var i = 0; i < src.tracks.length; i++) {
-                    let trackName = src.tracks[i].split('/').pop();
-                    let extension = trackName.split('.').pop();
-                    trackName = trackName.replace(`.${extension}`, '');
+                    let trackName = src.tracks[i].replace(`/${src.tracks[i].split('/').pop()}`, '').split('/').pop();
                     let opt = $(`<option value="${src.tracks[i]}">${trackName}</option>`);
                     $("#tracks").append(opt);
                 }

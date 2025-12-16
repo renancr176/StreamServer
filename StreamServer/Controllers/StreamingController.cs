@@ -3,7 +3,7 @@ using StreamServer.Extensions;
 using StreamServer.Models.Requests;
 using StreamServer.Models.Responses;
 using Swashbuckle.AspNetCore.Annotations;
-using System.IO;
+using System.Text;
 using System.Text.RegularExpressions;
 using Xabe.FFmpeg;
 
@@ -116,7 +116,7 @@ namespace StreamServer.Controllers
             
             var validExtensions = new List<string>()
             {
-                ".mpeg", ".mp4", ".mkv"
+                ".mpeg", ".mp4", ".mkv", ".avi"
             };
 
             var video = new FileInfo(request.FilePath);
@@ -137,10 +137,32 @@ namespace StreamServer.Controllers
 
                 var mediaInfo = await FFmpeg.GetMediaInfo(video.FullName);
 
+                var processVideoArguments = new StringBuilder();
+
+                if (mediaInfo.AudioStreams.Count() > 1)
+                {
+                    processVideoArguments.Append(
+                        $"-map 0:v:0 -codec: copy -an -hls_time 10 -hls_playlist_type vod \"{Path.Combine(folderName, "playlist.m3u8")}\"");
+
+                    var trackIndex = 0;
+                    foreach (var mediaInfoAudioStream in mediaInfo.AudioStreams)
+                    {
+                        processVideoArguments.Append(
+                            $" -map 0:a:{trackIndex} -vn -q:a 0 \"{Path.Combine(folderName, $"audio_track_{trackIndex+1}.mp3")}\"");
+                        trackIndex++;
+                    }
+                }
+                else
+                {
+                    processVideoArguments.Append($"-codec: copy -hls_time 10 -hls_playlist_type vod \"{Path.Combine(folderName, "playlist.m3u8")}\"");
+                }
+
+                var args = processVideoArguments.ToString();
                 await FFmpeg.Conversions.New()
                     .AddStream(mediaInfo.Streams)
                     //.AddParameter($"-codec: copy -hls_time 10 -hls_playlist_type vod \"{Path.Combine(folderName, "playlist.m3u8")}\"")
-                    .AddParameter($"-map 0:v:0 -codec: copy -an -hls_time 10 -hls_playlist_type vod \"{Path.Combine(folderName, "playlist.m3u8")}\" -map 0:a:0 -vn -q:a 0 \"{Path.Combine(folderName, "audio_track_1.mp3")}\" -map 0:a:1 -vn -q:a 0 \"{Path.Combine(folderName, "audio_track_2.mp3")}\"")
+                    //.AddParameter($"-map 0:v:0 -codec: copy -an -hls_time 10 -hls_playlist_type vod \"{Path.Combine(folderName, "playlist.m3u8")}\" -map 0:a:0 -vn -q:a 0 \"{Path.Combine(folderName, "audio_track_1.mp3")}\" -map 0:a:1 -vn -q:a 0 \"{Path.Combine(folderName, "audio_track_2.mp3")}\"")
+                    .AddParameter(args)
                     .Start();
 
                 var tracks = Directory.GetFiles(folderName)
@@ -150,11 +172,15 @@ namespace StreamServer.Controllers
 
                 foreach (var track in tracks)
                 {
-                    mediaInfo = await FFmpeg.GetMediaInfo(track.FullName);
+                    var trackInfo = await FFmpeg.GetMediaInfo(track.FullName);
+                    var trackFolder = Path.Combine(folderName, track.Name.Replace(track.Extension, ""));
+
+                    if (!Directory.Exists(trackFolder))
+                        Directory.CreateDirectory(trackFolder);
 
                     await FFmpeg.Conversions.New()
-                        .AddStream(mediaInfo.Streams)
-                        .AddParameter($"-c:a aac -b:a 128k -f hls -hls_time 10 -hls_list_size 0 \"{Path.Combine(folderName, $"{track.Name.Replace(track.Extension, "")}.m3u8")}\"")
+                        .AddStream(trackInfo.Streams)
+                        .AddParameter($"-c:a aac -b:a 128k -f hls -hls_time 10 -hls_list_size 0 \"{Path.Combine(trackFolder, "playlist.m3u8")}\"")
                         .Start();
 
                     System.IO.File.Delete(track.FullName);
@@ -186,9 +212,11 @@ namespace StreamServer.Controllers
 
             foreach (var directory in directories)
             {
-                var tracks = Directory.GetFiles(directory)
-                    .Where(file => Regex.IsMatch(file, @"audio_track_\d+\.m3u8$"))
-                    .Select(file => $"/hls/{Path.GetFileName(directory)}/{Path.GetFileName(file)}")
+                var tracks = Directory.GetDirectories(directory)
+                    .Where(file => Regex.IsMatch(file, @"audio_track_\d+$"))
+                    .SelectMany(d => Directory.GetFiles(d))
+                    .Where(file => file.EndsWith(".m3u8"))
+                    .Select(file => Regex.Replace(file, @"^.*.hls", "/hls").Replace("\\","/"))
                     .ToList();
                 var video = new VideoReponse(
                     Path.GetFileName(directory),
