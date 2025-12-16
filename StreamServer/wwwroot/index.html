@@ -39,7 +39,7 @@
                 <audio id="video-track" controls></audio>
             </div>
         </div>
-        <div class="row pt-1 pb-1">
+        <div class="row pt-1 pb-1" id="play-bar">
             <div class="col-auto">
                 <button id="next" class="btn btn-primary disabled">
                     <i class="fa-solid fa-angle-left"></i>
@@ -218,14 +218,30 @@
                     hlsVideo.loadSource(src.playlist);
                     hlsVideo.attachMedia($("#video")[0]);
 
-                    var hlsAudio = new Hls({
-                        xhrSetup: function (xhr) { },
-                    });
+                    if (src.tracks.length > 0) {
+                        var hlsAudio = new Hls({
+                            xhrSetup: function (xhr) { },
+                        });
 
-                    hlsAudio.loadSource(src.tracks[0]);
-                    hlsAudio.attachMedia($("#video-track")[0]);
+                        hlsAudio.loadSource(src.tracks[0]);
+                        hlsAudio.attachMedia($("#video-track")[0]);
+
+                        $("#video")[0].removeAttr('controls');
+                        $("#play-bar").show();
+                    } else {
+                        $("#video")[0].attr('controls', '');
+                        $("#play-bar").hide();
+                    }
                 } else {
                     $("#video").src = src.playlist;
+                    if (src.tracks.length > 0) {
+                        $("#video-track").src = src.tracks[0];
+                        $("#video")[0].removeAttr('controls');
+                        $("#play-bar").show();
+                    } else {
+                        $("#video")[0].attr('controls', '');
+                        $("#play-bar").hide();
+                    }
                 }
 
                 videoLoaded = true;
