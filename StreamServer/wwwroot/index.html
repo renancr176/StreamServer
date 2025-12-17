@@ -1,19 +1,23 @@
 <!DOCTYPE html>
 <html>
 <header>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-sRIl4kxILFvY47J16cr9ZwB07vP4J8+LH7qKQnuqkuIAvNWLzeN8tE5YBujZqJLB" crossorigin="anonymous">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/7.0.1/css/all.min.css" rel="stylesheet">
     <style>
-        #video-track {
-            display: none;
-        }
-        #video {
-            margin: auto auto;
-            height: calc(100vh - 100px);
-        }
         body {
             background: black;
             color: white;
+        }
+
+        #video-track {
+            display: none;
+        }
+
+        #video {
+            margin: auto auto;
+            height: calc(100vh - 100px);
         }
     </style>
 </header>
@@ -39,7 +43,7 @@
                 <audio id="video-track" controls></audio>
             </div>
         </div>
-        <div class="row pt-1 pb-1" id="play-bar">
+        <div class="row pt-1 pb-1 sticky-bottom" id="play-bar">
             <div class="col-auto">
                 <button id="next" class="btn btn-primary disabled">
                     <i class="fa-solid fa-angle-left"></i>
@@ -58,7 +62,7 @@
                 <span class="text-white"><span id="video-played-time">00:00</span>/<span id="video-duration">00:00</span></span>
             </div>
             <div class="col-auto">
-                <button id="toggle-screen" class="btn btn-primary disabled">
+                <button id="toggle-screen" class="btn btn-primary">
                     <i id="full-screen" class="fa-solid fa-expand"></i>
                     <i id="exit-full-screen" class="fa-solid fa-compress"></i>
                 </button>
@@ -83,9 +87,15 @@
         var videoSelected = undefined;
 
         $(document).ready(function () {
+            //#region Init
+
             $("#play-pause #pause").hide();
             $("#toggle-screen #exit-full-screen").hide();
             loadVideos();
+
+            //#endregion
+
+            //#region Events Handers
 
             $("#videoList").change(function () {
                 if (videoPlaying) {
@@ -145,7 +155,6 @@
                     videoFullscreen = true;
                     $("#toggle-screen #exit-full-screen").show();
                     $("#toggle-screen #full-screen").hide();
-                    $("#video").attr('controls', '');
                     if (videoElement.requestFullscreen) {
                         videoElement.requestFullscreen();
                     } else if (videoElement.mozRequestFullScreen) { /* Firefox */
@@ -157,7 +166,6 @@
                     }
                 } else {
                     videoFullscreen = false;
-                    $("#video").removeAttr('controls');
                     $("#toggle-screen #exit-full-screen").hide();
                     $("#toggle-screen #full-screen").show();
                     if (videoElement.exitFullscreen) {
@@ -171,6 +179,10 @@
                     }
                 }
             });
+
+            //#endregion
+
+            //#region Functions
 
             function getVideos(callback) {
                 $.ajax({
@@ -210,6 +222,7 @@
                 if (videoLoaded) {
                     $($("#video")[0]).unbind("timeupdate");
                     $($("#video")[0]).unbind("loadedmetadata");
+                    $($("#video")[0]).unbind("fullscreenchange");
                 }
 
                 if (Hls.isSupported()) {
@@ -249,6 +262,7 @@
                 videoLoaded = true;
                 $($("#video")[0]).on('timeupdate', setVideoCurrentTime);
                 $($("#video")[0]).on('loadedmetadata', setVideoDuration);
+                $($("#video")[0]).on('fullscreenchange', fullscreenchangeHandler);
             }
 
             function setVideoCurrentTime() {
@@ -262,6 +276,14 @@
                 let duration = $("#video")[0].duration;
                 $("#video-duration").text(formatTime(duration));
                 $("#video-timer").attr("max", duration);
+            }
+
+            function fullscreenchangeHandler() {
+                if (document.fullscreenElement) {
+                    $("#video").removeAttr('controls');
+                } else if (videoFullscreen) {
+                    $("#toggle-screen").trigger("click");
+                }
             }
 
             function formatTime(time) {
@@ -284,129 +306,9 @@
                     }
                 }
             }
+
+            //#endregion
         });
-            
-        /*var video = document.getElementById("video");
-        var tracks = document.getElementById("tracks");
-        var videotrack = document.getElementById("video-track");
-
-        //video.addEventListener('play', (event) => {
-        //    videotrack.play();
-            
-        //});
-        //video.addEventListener('pause', (event) => {
-        //    videoPlaying = false;
-        //    videotrack.currentTime = video.currentTime;
-        //    videotrack.pause();
-        //});
-
-        //video.addEventListener('volumechange', (event) => {
-        //    videotrack.volume = video.volume;
-        //});
-
-        //videotrack.addEventListener('play', (event) => {
-        //    video.play();
-        //    videoPlaying = true;
-        //    if (!hasPlayedOnce) {
-        //        hasPlayedOnce = true;
-        //    } else {
-        //        videotrack.currentTime = video.currentTime;
-        //    }
-        //});
-        //videotrack.addEventListener('pause', (event) => {
-        //    videoPlaying = false;
-        //    videotrack.currentTime = video.currentTime;
-        //    video.pause();
-        //});
-        //videotrack.addEventListener('volumechange', (event) => {
-        //    videotrack.volume = video.volume;
-        //});
-
-        tracks.onchange = () => setTrack();
-
-        async function loadVideos() {
-            const res = await fetch("Streaming/Videos", {});
-
-            const data = await res.json();
-
-            const select = document.getElementById("videoList");
-            select.innerHTML = "";
-
-            data.forEach((v) => {
-                const opt = document.createElement("option");
-                opt.value = v.playlist;
-                opt.textContent = v.name;
-                select.appendChild(opt);
-            });
-
-            select.onchange = () => play(select.value);
-
-            if (data.length > 0) play(data[0]);
-        }
-
-        function play(src) {
-            tracks.innerHTML = '';
-            for (var i = 0; i < src.tracks.length; i++) {
-                var option = document.createElement("option");
-                option.text = src.tracks[i];
-                option.value = src.tracks[i];
-                option.selected = i == 0;
-                tracks.appendChild(option);
-            }
-
-            setTrack();
-
-            if (Hls.isSupported()) {
-                var hlsVideo = new Hls({
-                    xhrSetup: function (xhr) { },
-                });
-
-                hlsVideo.loadSource(src.playlist);
-                hlsVideo.attachMedia(video);
-
-                 video.duration
-
-                var hlsAudio = new Hls({
-                    xhrSetup: function (xhr) { },
-                });
-
-                hlsAudio.loadSource(src.tracks[0]);
-                hlsAudio.attachMedia(videotrack);
-            } else {
-                video.src = src.playlist;
-            }
-        }
-
-        function setTrack() {
-            if (videoPlaying) {
-                video.pause();
-            }
-
-            var audioSource = document.createElement("source");
-            audioSource.src = tracks.value;
-            audioSource.type = "audio/mp4";
-            videotrack.innerHTML = "";
-            videotrack.appendChild(audioSource);
-            videotrack.src = tracks.value;
-            videotrack.load();
-            videotrack.currentTime = video.currentTime;
-
-            if (videoPlaying) {
-                video.play();
-                videotrack.play();
-            }
-        }
-
-        function formatTime(time) {
-            var minutes = Math.floor(time / 60);
-            var seconds = Math.floor(time % 60);
-            // Add leading zeros if needed
-            minutes = (minutes < 10) ? "0" + minutes : minutes;
-            seconds = (seconds < 10) ? "0" + seconds : seconds;
-            return minutes + ":" + seconds;
-        }
-
-        loadVideos();*/
     </script>
 </body>
 </html>
