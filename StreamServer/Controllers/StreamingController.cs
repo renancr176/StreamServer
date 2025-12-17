@@ -141,7 +141,7 @@ namespace StreamServer.Controllers
                 if (mediaInfo.AudioStreams.Count() > 1 && request.ExtractAudioTracks)
                 {
                     processVideoArguments.Append(
-                        $"-map 0:v:0 -codec: copy -an -hls_time 10 -hls_playlist_type vod \"{Path.Combine(folderName, "playlist.m3u8")}\"");
+                        $"-map 0:v:0 -codec: copy -an -sn -hls_time 10 -hls_playlist_type vod \"{Path.Combine(folderName, "playlist.m3u8")}\"");
 
                     var trackIndex = 0;
                     foreach (var mediaInfoAudioStream in mediaInfo.AudioStreams)
@@ -153,7 +153,7 @@ namespace StreamServer.Controllers
                 }
                 else
                 {
-                    processVideoArguments.Append($"-codec: copy -hls_time 10 -hls_playlist_type vod \"{Path.Combine(folderName, "playlist.m3u8")}\"");
+                    processVideoArguments.Append($"-codec: copy -sn -hls_time 10 -hls_playlist_type vod \"{Path.Combine(folderName, "playlist.m3u8")}\"");
                 }
 
                 var args = processVideoArguments.ToString();
