@@ -223,7 +223,11 @@ namespace StreamServer.Controllers
                     $"/hls/{Path.GetFileName(directory)}/playlist.m3u8"
                     )
                 {
-                    Tracks = tracks
+                    Tracks = tracks,
+                    Legends = Directory.GetFiles(directory)
+                        .Where(file => file.EndsWith(".srt"))
+                        .Select(file => Regex.Replace(file, @"^.*.hls", "/hls").Replace("\\", "/"))
+                        .ToList()
                 };
                 videos.Add(video);
             }

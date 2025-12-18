@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-sRIl4kxILFvY47J16cr9ZwB07vP4J8+LH7qKQnuqkuIAvNWLzeN8tE5YBujZqJLB" crossorigin="anonymous">
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/7.0.1/css/all.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/7.0.1/css/all.min.css" integrity="sha512-2SwdPD6INVrV/lHTZbO2nodKhrnDdJK9/kg2XD1r9uGqPo1cUbujc+IYdlYdEErWNu69gVcYgdxlmVmzTWnetw==" crossorigin="anonymous" referrerpolicy="no-referrer" />
     <style>
         body {
             background: black;
@@ -19,6 +19,30 @@
             margin: auto auto;
             height: calc(100vh - 100px);
         }
+
+        .video-container {
+            position: relative; /* Key: Establishes a positioning context for children */
+            width: 100%; /* Or a specific width */
+            height: auto; /* Or a specific height to define the container's bounds */
+        }
+
+        .video-container video {
+            display: block;
+        }
+
+        .subtitle-overlay {
+            position: absolute; /* Key: Position relative to the parent container */
+            bottom: 0; /* Aligns the div to the bottom edge of the container */
+            left: 0;
+            right: 0;
+            /*background-color: rgba(0, 0, 0, 0.7); /* Optional: semi-transparent background */
+            color: white;
+            text-shadow: 2px 2px #000000;
+            padding: 10px;
+            text-align: center;
+            /* Ensure it is above the video controls if needed, though usually fine */
+            z-index: 10;
+        }
     </style>
 </header>
 <body>
@@ -30,16 +54,25 @@
             <div class="col-auto">
                 <select id="videoList" class="form-select"></select>
             </div>
-            <div class="col-auto">
+            <div class="col-auto audio-selection">
                 <label class="form-label mt-2">Audio:</label>
             </div>
-            <div class="col-auto">
+            <div class="col-auto audio-selection">
                 <select id="tracks" class="form-select"></select>
+            </div>
+            <div class="col-auto legend-selection">
+                <label class="form-label mt-2">Legenda:</label>
+            </div>
+            <div class="col-auto legend-selection">
+                <select id="legends" class="form-select"></select>
             </div>
         </div>
         <div class="row mb-1">
             <div class="col">
-                <video id="video" class="d-flex justify-content-center"></video>
+                <div class="video-container">
+                    <video id="video" class="d-flex justify-content-center"></video>
+                    <div id="subtitles" class="subtitle-overlay fw-medium fs-3"></div>
+                </div>
                 <audio id="video-track" controls></audio>
             </div>
         </div>
@@ -78,6 +111,8 @@
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js" integrity="sha384-FKyoEForCGlyvwx9Hj09JcYn3nv7wiPVlz7YYwJrWVcXK/BmnVDxM+D2scQbITxI" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/7.0.1/js/all.min.js" integrity="sha512-6BTOlkauINO65nLhXhthZMtepgJSghyimIalb+crKRPhvhmsCdnIuGcVbR5/aQY2A+260iC1OPy1oCdB6pSSwQ==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <script src="./scripts/jquery.srt.js"></script>
     <script>
         var videoLoaded = false;
         var hasPlayedOnce = false;
@@ -124,6 +159,17 @@
 
                 if (wasPlaying) {
                     $("#play-pause").trigger("click");
+                }
+            });
+
+            $("#legends").change(function () {
+                if ($(this).val() != '') {
+                    $("#video").srt({
+                        srt_track: $(this).val(),
+                        default_url: `${window.location.protocol}//${window.location.hostname}${(window.location.port.length > 0 ? `:${window.location.port}` : '')}`
+                    });
+                } else {
+                    $("#video").srt({});
                 }
             });
 
@@ -213,10 +259,29 @@
             function play(src) {
                 videoSelected = src;
                 $("#tracks").empty();
-                for (var i = 0; i < src.tracks.length; i++) {
-                    let trackName = src.tracks[i].replace(`/${src.tracks[i].split('/').pop()}`, '').split('/').pop();
-                    let opt = $(`<option value="${src.tracks[i]}">${trackName}</option>`);
-                    $("#tracks").append(opt);
+                $("#legends").empty();
+
+                if (src.tracks.length > 0) {
+                    $(".audio-selection").show();
+                    for (var i = 0; i < src.tracks.length; i++) {
+                        let trackName = src.tracks[i].replace(`/${src.tracks[i].split('/').pop()}`, '').split('/').pop();
+                        let opt = $(`<option value="${src.tracks[i]}">${trackName}</option>`);
+                        $("#tracks").append(opt);
+                    }
+                } else {
+                    $(".audio-selection").hide();
+                }
+
+                if (src.legends.length > 0) {
+                    $(".legend-selection").show();
+                    $("#legends").append($(`<option value="">Sem Legenda</option>`));
+                    for (var i = 0; i < src.legends.length; i++) {
+                        let legendName = src.legends[i].split('/').pop().split('.')[0];
+                        let opt = $(`<option value="${src.legends[i]}">${legendName}</option>`);
+                        $("#legends").append(opt);
+                    }
+                } else {
+                    $(".legend-selection").hide();
                 }
 
                 if (videoLoaded) {
@@ -300,10 +365,10 @@
                     let videoCt = $("#video")[0].currentTime;
                     let audioCt = $("#video-track")[0].currentTime;
                     let diff = videoCt - audioCt;
-                    if (diff <= -0.1 || diff >= 0.1) {
-                        console.log(`Video ct: ${videoCt}`, `Audio ct: ${audioCt}`, `ct diff ${diff}`);
+                    if (diff <= -0.7 || diff >= 0.7) {
+                        //console.log(`Video ct: ${videoCt}`, `Audio ct: ${audioCt}`, `ct diff ${diff}`);
                         $("#video-track")[0].currentTime = $("#video")[0].currentTime;
-                        console.log(`Syncronized video and audio:`, `Video ct: ${$("#video")[0].currentTime}`, `Audio ct: ${$("#video")[0].currentTime}`);
+                        //console.log(`Syncronized video and audio:`, `Video ct: ${$("#video")[0].currentTime}`, `Audio ct: ${$("#video")[0].currentTime}`);
                     }
                 }
             }
