@@ -138,7 +138,7 @@
                     videoPlaying = true;
                     $("#play-pause #play").hide();
                     $("#play-pause #pause").show();
-                    syncAudioToVideo(true);
+                    syncAudioToVideo();
                     $("#video")[0].play();
                     $("#video-track")[0].play();
                 }
@@ -295,14 +295,15 @@
                 return minutes + ":" + seconds;
             }
 
-            function syncAudioToVideo(onStart = false) {
+            function syncAudioToVideo() {
                 if (videoSelected.tracks.length > 0) {
                     let videoCt = $("#video")[0].currentTime;
                     let audioCt = $("#video-track")[0].currentTime;
                     let diff = videoCt - audioCt;
-                    //console.log(`Video ct: ${videoCt}`, `Audio ct: ${audioCt}`, `ct diff ${diff}`);
-                    if (diff >= 0.07 || diff <= 0.07 || onStart) {
-                        $("#video-track")[0].currentTime = $("#video")[0].currentTime + 0.06;
+                    if (diff <= -0.1 || diff >= 0.1) {
+                        console.log(`Video ct: ${videoCt}`, `Audio ct: ${audioCt}`, `ct diff ${diff}`);
+                        $("#video-track")[0].currentTime = $("#video")[0].currentTime;
+                        console.log(`Syncronized video and audio:`, `Video ct: ${$("#video")[0].currentTime}`, `Audio ct: ${$("#video")[0].currentTime}`);
                     }
                 }
             }
