@@ -26,6 +26,7 @@
 		}, options);
 
 		subtitles = [];
+		var play_subtitles = undefined;
 
 		// Check if the HTML element exists, and create it if it doesn't
 		if ($(`#${settings.srt_elem}`).length == 0) {
@@ -33,35 +34,42 @@
 		}
 
 		// Load the subtitles in a blocking manner
-		$.ajax({
-			url: settings.default_url + settings.srt_track,
-			success: function (data) {
-				var sections = data.split("\r\n\r\n");
-				$.each(sections, function (index, value) {
-					try {
-						if (value.trim().length > 0) {
+		if (settings.srt_track) {
+			$.ajax({
+				url: settings.default_url + settings.srt_track,
+				success: function (data) {
+					var sections = data.split("\r\n\r\n");
+					$.each(sections, function (index, value) {
+						try {
+							if (value.trim().length > 0) {
 
-							var lines = value.split("\r\n");
-							var subtitle_data = {
-								"st": to_seconds(lines[1].split(" --> ")[0]), // start time
-								"et": to_seconds(lines[1].split(" --> ")[1]), // end time
-								"da": lines.slice(2)
-							};
+								var lines = value.split("\r\n");
+								var subtitle_data = {
+									"st": to_seconds(lines[1].split(" --> ")[0]), // start time
+									"et": to_seconds(lines[1].split(" --> ")[1]), // end time
+									"da": lines.slice(2)
+								};
 
-							subtitles.push(subtitle_data);
+								subtitles.push(subtitle_data);
+							}
+						} catch (e) {
+							console.error(e);
 						}
-					} catch (e) {
-						console.error(e);
-					}
-				});
+					});
 
-				//console.log('subtitles', subtitles);
-			},
-			async: false
-		});
+					//console.log('subtitles', subtitles);
+				},
+				async: false
+			});
+		}
+
+		if (play_subtitles) {
+			clearInterval(play_subtitles);
+		}
 
 		// Bind the play and pause methods
-		$(this).on('play', function () {
+		$(this).unbind("timeupdate");
+		$(this).on('timeupdate', function () {
 			$obj = $(this)
 
 			play_subtitles = setInterval(function () {

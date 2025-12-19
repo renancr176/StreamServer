@@ -4,11 +4,20 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-sRIl4kxILFvY47J16cr9ZwB07vP4J8+LH7qKQnuqkuIAvNWLzeN8tE5YBujZqJLB" crossorigin="anonymous">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/7.0.1/css/all.min.css" integrity="sha512-2SwdPD6INVrV/lHTZbO2nodKhrnDdJK9/kg2XD1r9uGqPo1cUbujc+IYdlYdEErWNu69gVcYgdxlmVmzTWnetw==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+    <link rel="stylesheet" href="/styles/font-awesome_7.0.1.min.css"/>
     <style>
         body {
             background: black;
             color: white;
+        }
+
+        .container-fluid.full-scree::-webkit-scrollbar {
+            display: none; /* Hide the scrollbar */
+        }
+        .container-fluid.full-scree {
+            overflow: hidden;
+            -ms-overflow-style: none; /* Internet Explorer and Edge */
+            scrollbar-width: none; /* Firefox */
         }
 
         #video-track {
@@ -67,7 +76,7 @@
     </style>
 </header>
 <body>
-    <div class="container-fluid">
+    <div class="container-fluid"> 
         <div class="row mb-1 hide-on-full-screen">
             <div class="col-auto">
                 <label class="form-label mt-2">Video:</label>
@@ -136,7 +145,7 @@
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js" integrity="sha384-FKyoEForCGlyvwx9Hj09JcYn3nv7wiPVlz7YYwJrWVcXK/BmnVDxM+D2scQbITxI" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/7.0.1/js/all.min.js" integrity="sha512-6BTOlkauINO65nLhXhthZMtepgJSghyimIalb+crKRPhvhmsCdnIuGcVbR5/aQY2A+260iC1OPy1oCdB6pSSwQ==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <script src="./scripts/font-awesome_7.0.1.min.js"></script>
     <script src="./scripts/jquery.srt.js"></script>
     <script>
         var videoLoaded = false;
@@ -150,7 +159,6 @@
             //#region Init
 
             $("#play-pause #pause").hide();
-            $(".toggle-screen #exit-full-screen").hide();
             $(".show-on-full-screen").hide();
             loadVideos();
 
@@ -227,11 +235,13 @@
                     $(".hide-on-full-screen").hide();
                     $(".show-on-full-screen").show();
                     $("#video").addClass("full-scree");
+                    $(".container-fluid").addClass("full-scree");
                     $("#subtitles").removeClass("fs-3").addClass("fs-1");
                 } else {
                     $(".hide-on-full-screen").show();
                     $(".show-on-full-screen").hide();
                     $("#video").removeClass("full-scree");
+                    $(".container-fluid").removeClass("full-scree");
                     $("#subtitles").removeClass("fs-1").addClass("fs-3");
                 }
                 toggleFullscreen();

@@ -20,6 +20,8 @@
 
   <ItemGroup>
     <Folder Include="hls\" />
+    <Folder Include="wwwroot\webfonts\" />
+    <Folder Include="wwwroot\styles\" />
   </ItemGroup>
 
 </Project>
