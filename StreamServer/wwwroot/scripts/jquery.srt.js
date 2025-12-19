@@ -39,14 +39,17 @@
 				var sections = data.split("\r\n\r\n");
 				$.each(sections, function (index, value) {
 					try {
-						var lines = value.split("\r\n");
-						var subtitle_data = {
-							"st": to_seconds(lines[1].split(" --> ")[0]), // start time
-							"et": to_seconds(lines[1].split(" --> ")[1]), // end time
-							"da": lines.slice(2)
-						};
+						if (value.trim().length > 0) {
 
-						subtitles.push(subtitle_data);
+							var lines = value.split("\r\n");
+							var subtitle_data = {
+								"st": to_seconds(lines[1].split(" --> ")[0]), // start time
+								"et": to_seconds(lines[1].split(" --> ")[1]), // end time
+								"da": lines.slice(2)
+							};
+
+							subtitles.push(subtitle_data);
+						}
 					} catch (e) {
 						console.error(e);
 					}

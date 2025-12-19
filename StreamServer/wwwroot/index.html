@@ -20,6 +20,12 @@
             height: calc(100vh - 100px);
         }
 
+        #video.full-scree{
+            margin: auto auto;
+            width: 100%;
+            height: 100% !important;
+        }
+
         .video-container {
             position: relative; /* Key: Establishes a positioning context for children */
             width: 100%; /* Or a specific width */
@@ -43,11 +49,26 @@
             /* Ensure it is above the video controls if needed, though usually fine */
             z-index: 10;
         }
+
+        .show-on-full-screen {
+            position: absolute;
+            right: 0;
+            bottom: 0;
+            margin-right: 10px;
+            margin-bottom: 10px;
+            z-index: 10;
+        }
+
+        .show-on-full-screen > button{
+            background-color: transparent;
+            color: #C0C0C0;
+            text-shadow: 2px 2px #000000;
+        }
     </style>
 </header>
 <body>
     <div class="container-fluid">
-        <div class="row mb-1">
+        <div class="row mb-1 hide-on-full-screen">
             <div class="col-auto">
                 <label class="form-label mt-2">Video:</label>
             </div>
@@ -72,11 +93,16 @@
                 <div class="video-container">
                     <video id="video" class="d-flex justify-content-center"></video>
                     <div id="subtitles" class="subtitle-overlay fw-medium fs-3"></div>
+                    <div class="show-on-full-screen float-end">
+                        <button class="toggle-screen btn fs-3 fw-bold">
+                            <i id="exit-full-screen" class="fa-solid fa-compress"></i>
+                        </button>
+                    </div>
                 </div>
                 <audio id="video-track" controls></audio>
             </div>
         </div>
-        <div class="row pt-1 pb-1 sticky-bottom" id="play-bar">
+        <div class="row pt-1 pb-1 sticky-bottom hide-on-full-screen" id="play-bar">
             <div class="col-auto">
                 <button id="next" class="btn btn-primary disabled">
                     <i class="fa-solid fa-angle-left"></i>
@@ -95,9 +121,8 @@
                 <span class="text-white"><span id="video-played-time">00:00</span>/<span id="video-duration">00:00</span></span>
             </div>
             <div class="col-auto">
-                <button id="toggle-screen" class="btn btn-primary">
+                <button class="toggle-screen btn btn-primary">
                     <i id="full-screen" class="fa-solid fa-expand"></i>
-                    <i id="exit-full-screen" class="fa-solid fa-compress"></i>
                 </button>
             </div>
             <div class="col-auto">
@@ -125,7 +150,8 @@
             //#region Init
 
             $("#play-pause #pause").hide();
-            $("#toggle-screen #exit-full-screen").hide();
+            $(".toggle-screen #exit-full-screen").hide();
+            $(".show-on-full-screen").hide();
             loadVideos();
 
             //#endregion
@@ -195,35 +221,20 @@
                 $("#video")[0].currentTime = $(this).val();
             });
 
-            $("#toggle-screen").click(function() {
-                let videoElement = $("#video")[0];
-                if (!videoFullscreen) {
-                    videoFullscreen = true;
-                    $("#toggle-screen #exit-full-screen").show();
-                    $("#toggle-screen #full-screen").hide();
-                    if (videoElement.requestFullscreen) {
-                        videoElement.requestFullscreen();
-                    } else if (videoElement.mozRequestFullScreen) { /* Firefox */
-                        videoElement.mozRequestFullScreen();
-                    } else if (videoElement.webkitRequestFullscreen) { /* Chrome, Safari & Opera */
-                        videoElement.webkitRequestFullscreen();
-                    } else if (videoElement.msRequestFullscreen) { /* IE/Edge */
-                        videoElement.msRequestFullscreen();
-                    }
+            $(".toggle-screen").click(function () {
+                videoFullscreen = !videoFullscreen;
+                if (videoFullscreen) {
+                    $(".hide-on-full-screen").hide();
+                    $(".show-on-full-screen").show();
+                    $("#video").addClass("full-scree");
+                    $("#subtitles").removeClass("fs-3").addClass("fs-1");
                 } else {
-                    videoFullscreen = false;
-                    $("#toggle-screen #exit-full-screen").hide();
-                    $("#toggle-screen #full-screen").show();
-                    if (videoElement.exitFullscreen) {
-                        videoElement.exitFullscreen();
-                    } else if (videoElement.mozCancelFullScreen) { // Firefox
-                        videoElement.mozCancelFullScreen();
-                    } else if (videoElement.webkitExitFullscreen) { // Chrome, Safari & Opera
-                        videoElement.webkitExitFullscreen();
-                    } else if (videoElement.msExitFullscreen) { // IE/Edge
-                        videoElement.msExitFullscreen();
-                    }
+                    $(".hide-on-full-screen").show();
+                    $(".show-on-full-screen").hide();
+                    $("#video").removeClass("full-scree");
+                    $("#subtitles").removeClass("fs-1").addClass("fs-3");
                 }
+                toggleFullscreen();
             });
 
             //#endregion
@@ -369,6 +380,31 @@
                         //console.log(`Video ct: ${videoCt}`, `Audio ct: ${audioCt}`, `ct diff ${diff}`);
                         $("#video-track")[0].currentTime = $("#video")[0].currentTime;
                         //console.log(`Syncronized video and audio:`, `Video ct: ${$("#video")[0].currentTime}`, `Audio ct: ${$("#video")[0].currentTime}`);
+                    }
+                }
+            }
+
+            function toggleFullscreen() {
+                // Get the documentElement (<html>) to display the entire page in fullscreen
+                var elem = document.documentElement;
+
+                if (!document.fullscreenElement) {
+                    // If the document is not in full screen mode, request it
+                    if (elem.requestFullscreen) {
+                        elem.requestFullscreen();
+                    } else if (elem.webkitRequestFullscreen) { /* Safari */
+                        elem.webkitRequestFullscreen();
+                    } else if (elem.msRequestFullscreen) { /* IE11 */
+                        elem.msRequestFullscreen();
+                    }
+                } else {
+                    // Otherwise, exit full screen
+                    if (document.exitFullscreen) {
+                        document.exitFullscreen();
+                    } else if (document.webkitExitFullscreen) { /* Safari */
+                        document.webkitExitFullscreen();
+                    } else if (document.msExitFullscreen) { /* IE11 */
+                        document.msExitFullscreen();
                     }
                 }
             }
