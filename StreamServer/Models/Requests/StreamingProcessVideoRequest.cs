@@ -8,6 +8,7 @@ public class StreamingProcessVideoRequest
     [CustomValidation(typeof(StreamingProcessVideoRequest), "ValidateFileExists")]
     public string FilePath { get; set; }
     public bool ExtractAudioTracks { get; set; } = false;
+    public bool DeletedFileAfterProcess { get; set; } = false;
 
     public static ValidationResult ValidateFileExists(string? filePath)
     {

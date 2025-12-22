@@ -138,7 +138,7 @@ namespace StreamServer.Controllers
 
                 var processVideoArguments = new StringBuilder();
 
-                if (mediaInfo.AudioStreams.Count() > 1 && request.ExtractAudioTracks)
+                if (request.ExtractAudioTracks)
                 {
                     processVideoArguments.Append(
                         $"-map 0:v:0 -codec: copy -an -sn -hls_time 10 -hls_playlist_type vod \"{Path.Combine(folderName, "playlist.m3u8")}\"");
@@ -183,6 +183,11 @@ namespace StreamServer.Controllers
                         .Start();
 
                     System.IO.File.Delete(track.FullName);
+                }
+
+                if (request.DeletedFileAfterProcess)
+                {
+                    System.IO.File.Delete(video.FullName);
                 }
 
                 return Ok(baseResponse);
