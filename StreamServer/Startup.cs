@@ -232,13 +232,13 @@ public class Startup : IStartup
             Directory.CreateDirectory(Path.Combine(Directory.GetCurrentDirectory(), "hls"));
 
         // Servir arquivos HLS
-        app.UseStaticFiles(new StaticFileOptions
-        {
-            FileProvider = new PhysicalFileProvider(
-                Path.Combine(Directory.GetCurrentDirectory(), "hls")),
-            RequestPath = "/hls",
-            ServeUnknownFileTypes = true
-        });
+        //app.UseStaticFiles(new StaticFileOptions
+        //{
+        //    FileProvider = new PhysicalFileProvider(
+        //        Path.Combine(Directory.GetCurrentDirectory(), "hls")),
+        //    RequestPath = "/hls",
+        //    ServeUnknownFileTypes = true
+        //});
 
         // Servir wwwroot (player)
         app.UseStaticFiles();

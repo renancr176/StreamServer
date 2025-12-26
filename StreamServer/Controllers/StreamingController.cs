@@ -14,82 +14,6 @@ namespace StreamServer.Controllers
     public class StreamingController : Controller
     {
         /// <summary>
-        /// Upload video
-        /// </summary>
-        [HttpPost("UploadVideo")]
-        [RequestSizeLimit(2147483648)] // 2 GB
-        [RequestFormLimits(MultipartBodyLengthLimit = 524288000)] // 2 GB
-        [SwaggerResponse(200, Type = typeof(BaseResponse))]
-        [SwaggerResponse(400, Type = typeof(BaseResponse))]
-        public async Task<IActionResult> UploadVideoAsync([FromForm] StreamingUploadVideoRequest request)
-        {
-            var baseResponse = new BaseResponse();
-            var validExtensions = new List<string>()
-            {
-                ".mpeg", ".mp4", ".mkv"
-            };
-
-            var fileExtension = request?.Video != null ? Path.GetExtension(request.Video.FileName) : "";
-            var tempFile = new FileInfo(Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}{fileExtension}"));
-            try
-            {
-                if (request?.Video == null || request.Video.Length == 0)
-                {
-                    throw new Exception("No file not received");
-                }
-
-                if (validExtensions.All(extension => extension != fileExtension))
-                {
-                    throw new Exception("Invalid file type.");
-                }
-
-                var folderName = Path.Combine(Directory.GetCurrentDirectory(), "hls", request.Video.FileName.Replace(fileExtension, "").SanitizeFolderName());
-
-                if (Directory.Exists(folderName) && Directory.GetFiles(folderName).Length > 0)
-                {
-                    throw new Exception("File already uploaded.");
-                }
-
-                using (var memoryStream = new MemoryStream())
-                {
-                    await request.Video.CopyToAsync(memoryStream);
-                    memoryStream.Position = 0;
-                    await System.IO.File.WriteAllBytesAsync(tempFile.FullName, memoryStream.ToArray());
-                }
-
-                var mediaInfo = await FFmpeg.GetMediaInfo(tempFile.FullName);
-
-                if (!Directory.Exists(folderName))
-                    Directory.CreateDirectory(folderName);
-
-                await FFmpeg.Conversions.New()
-                    .AddStream(mediaInfo.Streams)
-                    // -codec (Copy the codec)
-                    // -start_number (Start at second)
-                    // -hls_time (Define duration of each segment in seconds)
-                    // -hls_list_size (Keep all segments in the playlist)
-                    // -f hls (Sets the output format to HLS)
-                    .AddParameter("-codec: copy -start_number 0 -hls_time 10 -hls_list_size 0 -f hls")
-                    .SetOutput(Path.Combine(folderName, "play.m3u8"))
-                    .Start();
-            }
-            catch (Exception e)
-            {
-                baseResponse.Errors.Add(new BaseResponseError()
-                {
-                    ErrorCode = "InternalServerError",
-                    Message = e.Message
-                });
-            }
-            finally
-            {
-                if (System.IO.File.Exists(tempFile.FullName))
-                    System.IO.File.Delete(tempFile.FullName);
-            }
-            return BadRequest(baseResponse);
-        }
-
-        /// <summary>
         /// Process video
         /// </summary>
         [HttpPatch("ProcessVideo")]
@@ -221,23 +145,49 @@ namespace StreamServer.Controllers
                     .Where(file => Regex.IsMatch(file, @"audio_track_\d+$"))
                     .SelectMany(d => Directory.GetFiles(d))
                     .Where(file => file.EndsWith(".m3u8"))
-                    .Select(file => Regex.Replace(file, @"^.*.hls", "/hls").Replace("\\","/"))
+                    .Select(file => Regex.Replace(file, @"^.*.hls", "/Streaming/Hls").Replace("\\","/"))
                     .ToList();
                 var video = new VideoReponse(
                     Path.GetFileName(directory),
-                    $"/hls/{Path.GetFileName(directory)}/playlist.m3u8"
+                    $"/Streaming/Hls/{Path.GetFileName(directory)}/playlist.m3u8"
                     )
                 {
                     Tracks = tracks,
                     Legends = Directory.GetFiles(directory)
                         .Where(file => file.EndsWith(".srt"))
-                        .Select(file => Regex.Replace(file, @"^.*.hls", "/hls").Replace("\\", "/"))
+                        .Select(file => Regex.Replace(file, @"^.*.hls", "/Streaming/Hls").Replace("\\", "/"))
                         .ToList()
                 };
                 videos.Add(video);
             }
 
             return Ok(videos);
+        }
+
+        [HttpGet("Hls/{folder}/{fileName}")]
+        [SwaggerResponse(200)]
+        [SwaggerResponse(400)]
+        public async Task<IActionResult> HlsAsync([FromRoute] string folder, [FromRoute] string fileName)
+        {
+            var file = new FileInfo(Path.Combine(Directory.GetCurrentDirectory(), "hls", folder, fileName));
+
+            if (!System.IO.File.Exists(file.FullName))
+                return BadRequest();
+
+            return File(System.IO.File.ReadAllBytes(file.FullName), file.GetContentType(), file.Name);
+        }
+        
+        [HttpGet("Hls/{folder}/{subFolder}/{fileName}")]
+        [SwaggerResponse(200)]
+        [SwaggerResponse(400)]
+        public async Task<IActionResult> HlsAsync([FromRoute] string folder, [FromRoute] string subFolder, [FromRoute] string fileName)
+        {
+            var file = new FileInfo(Path.Combine(Directory.GetCurrentDirectory(), "hls", folder, subFolder, fileName));
+
+            if (!System.IO.File.Exists(file.FullName))
+                return BadRequest();
+
+            return File(System.IO.File.ReadAllBytes(file.FullName), file.GetContentType(), file.Name);
         }
     }
 }
