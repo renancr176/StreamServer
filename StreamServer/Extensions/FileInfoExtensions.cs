@@ -12,6 +12,8 @@ public static class FileInfoExtensions
                 return "application/x-mpegURL";
             case ".TS":
                 return "application/x-typescript";
+            case ".SRT":
+                return "application/x-subrip";
             default:
                 if (!new FileExtensionContentTypeProvider().TryGetContentType(file.Name, out var mediaType))
                     throw new NotImplementedException("Unrecognized content type.");
