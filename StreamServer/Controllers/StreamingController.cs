@@ -168,7 +168,7 @@ namespace StreamServer.Controllers
                     .Where(file => Regex.IsMatch(file, @"audio_track_\d+$"))
                     .SelectMany(d => Directory.GetFiles(d))
                     .Where(file => file.EndsWith(".m3u8"))
-                    .Select(file => Regex.Replace(file, @"^.*.hls", "/Streaming/Hls").Replace("\\","/"))
+                    .Select(file => Regex.Replace(file, @"^.*.hls", "/Streaming/Hls", RegexOptions.IgnoreCase).Replace("\\","/"))
                     .ToList();
                 var video = new VideoReponse(
                     Path.GetFileName(directory),
@@ -178,7 +178,7 @@ namespace StreamServer.Controllers
                     Tracks = tracks,
                     Legends = Directory.GetFiles(directory)
                         .Where(file => file.EndsWith(".srt"))
-                        .Select(file => Regex.Replace(file, @"^.*.hls", "/Streaming/Hls").Replace("\\", "/"))
+                        .Select(file => Regex.Replace(file, @"^.*.hls", "/Streaming/Hls", RegexOptions.IgnoreCase).Replace("\\", "/"))
                         .ToList()
                 };
                 videos.Add(video);
