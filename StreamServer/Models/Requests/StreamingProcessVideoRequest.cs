@@ -6,13 +6,13 @@ public class StreamingProcessVideoRequest
 {
     [Required]
     [CustomValidation(typeof(StreamingProcessVideoRequest), "ValidateFileExists")]
-    public string FilePath { get; set; }
+    public IEnumerable<string> FilesPath { get; set; }
     public bool ExtractAudioTracks { get; set; } = false;
     public bool DeletedFileAfterProcess { get; set; } = false;
 
-    public static ValidationResult ValidateFileExists(string? filePath)
+    public static ValidationResult ValidateFileExists(IEnumerable<string> filesPath)
     {
-        return File.Exists(filePath)
+        return filesPath.All(filePath => File.Exists(filePath))
             ? ValidationResult.Success
             : new ValidationResult("File not exists.");
     }

@@ -17,14 +17,15 @@ namespace StreamServer.Controllers
         /// Process video
         /// </summary>
         [HttpPatch("ProcessVideo")]
-        [SwaggerResponse(200, Type = typeof(BaseResponse))]
-        [SwaggerResponse(400, Type = typeof(BaseResponse))]
+        [SwaggerResponse(200, Type = typeof(BaseResponse<IEnumerable<BaseResponse>>))]
+        [SwaggerResponse(400, Type = typeof(BaseResponse<IEnumerable<BaseResponse>>))]
         public async Task<IActionResult> ProcessVideoAsync([FromBody] StreamingProcessVideoRequest request)
         {
-            var baseResponse = new BaseResponse();
+            var responses = new List<BaseResponse>();
 
             if (!ModelState.IsValid)
             {
+                var baseResponse = new BaseResponse();
                 foreach (var modelError in ModelState.Values.SelectMany(x => x.Errors)) 
                 {
                     baseResponse.Errors.Add(new BaseResponseError()
@@ -32,9 +33,11 @@ namespace StreamServer.Controllers
                         ErrorCode = "ModelError",
                         Message = modelError.ErrorMessage
                     });
+                    
                 }
+                responses.Add(baseResponse);
 
-                return BadRequest(baseResponse);
+                return BadRequest(responses);
             }
 
             var validExtensions = new List<string>()
@@ -42,90 +45,98 @@ namespace StreamServer.Controllers
                 ".mpeg", ".mp4", ".mkv", ".avi"
             };
 
-            var video = new FileInfo(request.FilePath);
-            try
+            
+
+            foreach (var filePath in request.FilesPath)
             {
-                if (validExtensions.All(extension => extension != video.Extension))
+                var baseResponse = new BaseResponse();
+                var video = new FileInfo(filePath);
+                try
                 {
-                    throw new Exception("Invalid file type.");
-                }
+                    if (validExtensions.All(extension => extension != video.Extension))
+                    {
+                        throw new Exception("Invalid file type.");
+                    }
 
-                var folderName = Path.Combine(Directory.GetCurrentDirectory(), "hls", video.Name.Replace(video.Extension, "").SanitizeFolderName());
+                    var folderName = Path.Combine(Directory.GetCurrentDirectory(), "hls", video.Name.Replace(video.Extension, "").SanitizeFolderName());
 
-                if (Directory.Exists(folderName) && Directory.GetFiles(folderName).Any())
-                    Directory.Delete(folderName, true);
+                    if (Directory.Exists(folderName) && Directory.GetFiles(folderName).Any())
+                        Directory.Delete(folderName, true);
 
-                if (!Directory.Exists(folderName))
-                    Directory.CreateDirectory(folderName);
+                    if (!Directory.Exists(folderName))
+                        Directory.CreateDirectory(folderName);
 
-                var mediaInfo = await FFmpeg.GetMediaInfo(video.FullName);
+                    var mediaInfo = await FFmpeg.GetMediaInfo(video.FullName);
 
-                var processVideoArguments = new StringBuilder();
+                    var processVideoArguments = new StringBuilder();
 
-                if (request.ExtractAudioTracks)
-                {
-                    processVideoArguments.Append(
-                        $"-map 0:v:0 -codec: copy -an -sn -hls_time 10 -hls_playlist_type vod \"{Path.Combine(folderName, "playlist.m3u8")}\"");
-
-                    var trackIndex = 0;
-                    foreach (var mediaInfoAudioStream in mediaInfo.AudioStreams)
+                    if (request.ExtractAudioTracks)
                     {
                         processVideoArguments.Append(
-                            $" -map 0:a:{trackIndex} -vn -q:a 0 \"{Path.Combine(folderName, $"audio_track_{trackIndex+1}.mp3")}\"");
-                        trackIndex++;
+                            $"-map 0:v:0 -codec: copy -an -sn -hls_time 10 -hls_playlist_type vod \"{Path.Combine(folderName, "playlist.m3u8")}\"");
+
+                        var trackIndex = 0;
+                        foreach (var mediaInfoAudioStream in mediaInfo.AudioStreams)
+                        {
+                            processVideoArguments.Append(
+                                $" -map 0:a:{trackIndex} -vn -q:a 0 \"{Path.Combine(folderName, $"audio_track_{trackIndex + 1}.mp3")}\"");
+                            trackIndex++;
+                        }
                     }
-                }
-                else
-                {
-                    processVideoArguments.Append($"-codec: copy -sn -hls_time 10 -hls_playlist_type vod \"{Path.Combine(folderName, "playlist.m3u8")}\"");
-                }
+                    else
+                    {
+                        processVideoArguments.Append($"-codec: copy -sn -hls_time 10 -hls_playlist_type vod \"{Path.Combine(folderName, "playlist.m3u8")}\"");
+                    }
 
-                var args = processVideoArguments.ToString();
-                await FFmpeg.Conversions.New()
-                    .AddStream(mediaInfo.Streams)
-                    //.AddParameter($"-codec: copy -hls_time 10 -hls_playlist_type vod \"{Path.Combine(folderName, "playlist.m3u8")}\"")
-                    //.AddParameter($"-map 0:v:0 -codec: copy -an -hls_time 10 -hls_playlist_type vod \"{Path.Combine(folderName, "playlist.m3u8")}\" -map 0:a:0 -vn -q:a 0 \"{Path.Combine(folderName, "audio_track_1.mp3")}\" -map 0:a:1 -vn -q:a 0 \"{Path.Combine(folderName, "audio_track_2.mp3")}\"")
-                    .AddParameter(args)
-                    .Start();
-
-                var tracks = Directory.GetFiles(folderName)
-                    .Where(file => Regex.IsMatch(file, @"audio_track_\d+\.mp3$"))
-                    .Select(file => new FileInfo(file))
-                    .ToList();
-
-                foreach (var track in tracks)
-                {
-                    var trackInfo = await FFmpeg.GetMediaInfo(track.FullName);
-                    var trackFolder = Path.Combine(folderName, track.Name.Replace(track.Extension, ""));
-
-                    if (!Directory.Exists(trackFolder))
-                        Directory.CreateDirectory(trackFolder);
-
+                    var args = processVideoArguments.ToString();
                     await FFmpeg.Conversions.New()
-                        .AddStream(trackInfo.Streams)
-                        .AddParameter($"-c:a aac -b:a 128k -f hls -hls_time 10 -hls_list_size 0 \"{Path.Combine(trackFolder, "playlist.m3u8")}\"")
+                        .AddStream(mediaInfo.Streams)
+                        //.AddParameter($"-codec: copy -hls_time 10 -hls_playlist_type vod \"{Path.Combine(folderName, "playlist.m3u8")}\"")
+                        //.AddParameter($"-map 0:v:0 -codec: copy -an -hls_time 10 -hls_playlist_type vod \"{Path.Combine(folderName, "playlist.m3u8")}\" -map 0:a:0 -vn -q:a 0 \"{Path.Combine(folderName, "audio_track_1.mp3")}\" -map 0:a:1 -vn -q:a 0 \"{Path.Combine(folderName, "audio_track_2.mp3")}\"")
+                        .AddParameter(args)
                         .Start();
 
-                    System.IO.File.Delete(track.FullName);
+                    var tracks = Directory.GetFiles(folderName)
+                        .Where(file => Regex.IsMatch(file, @"audio_track_\d+\.mp3$"))
+                        .Select(file => new FileInfo(file))
+                        .ToList();
+
+                    foreach (var track in tracks)
+                    {
+                        var trackInfo = await FFmpeg.GetMediaInfo(track.FullName);
+                        var trackFolder = Path.Combine(folderName, track.Name.Replace(track.Extension, ""));
+
+                        if (!Directory.Exists(trackFolder))
+                            Directory.CreateDirectory(trackFolder);
+
+                        await FFmpeg.Conversions.New()
+                            .AddStream(trackInfo.Streams)
+                            .AddParameter($"-c:a aac -b:a 128k -f hls -hls_time 10 -hls_list_size 0 \"{Path.Combine(trackFolder, "playlist.m3u8")}\"")
+                            .Start();
+
+                        System.IO.File.Delete(track.FullName);
+                    }
+
+                    if (request.DeletedFileAfterProcess)
+                    {
+                        System.IO.File.Delete(video.FullName);
+                    }
+                }
+                catch (Exception e)
+                {
+                    baseResponse.Errors.Add(new BaseResponseError()
+                    {
+                        ErrorCode = "InternalServerError",
+                        Message = e.Message
+                    });
                 }
 
-                if (request.DeletedFileAfterProcess)
-                {
-                    System.IO.File.Delete(video.FullName);
-                }
-
-                return Ok(baseResponse);
-            }
-            catch (Exception e)
-            {
-                baseResponse.Errors.Add(new BaseResponseError()
-                {
-                    ErrorCode = "InternalServerError",
-                    Message = e.Message
-                });
+                responses.Add(baseResponse);
             }
 
-            return BadRequest(baseResponse);
+            return responses.All(x => x.Success) 
+                ? Ok(responses)
+                : BadRequest(responses);
         }
 
         [HttpGet("Videos")]
