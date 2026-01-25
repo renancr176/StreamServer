@@ -1,0 +1,1 @@
+dotnet run --project StreamServer/StreamServer.csproj --configuration Debug --launch-profile https
