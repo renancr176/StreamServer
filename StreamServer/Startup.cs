@@ -7,6 +7,7 @@ using StreamServer.Interfaces.Services;
 using StreamServer.Services;
 using System.Reflection;
 using System.Text.Json.Serialization;
+using StreamServer.Options;
 
 namespace StreamServer;
 
@@ -194,6 +195,7 @@ public class Startup : IStartup
 
         #endregion
 
+        services.AddOptionsIoC(Configuration);
         services.AddServices(Configuration);
 
         Init(services.BuildServiceProvider());

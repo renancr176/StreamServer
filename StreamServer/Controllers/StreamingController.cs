@@ -5,6 +5,8 @@ using StreamServer.Models.Responses;
 using Swashbuckle.AspNetCore.Annotations;
 using System.Text;
 using System.Text.RegularExpressions;
+using Microsoft.Extensions.Options;
+using StreamServer.Options;
 using Xabe.FFmpeg;
 
 namespace StreamServer.Controllers
@@ -13,6 +15,15 @@ namespace StreamServer.Controllers
     [ApiController]
     public class StreamingController : Controller
     {
+        private readonly IOptions<StorageOptions> _storageOptions;
+
+        public StreamingController(IOptions<StorageOptions> storageOptions)
+        {
+            _storageOptions = storageOptions;
+        }
+
+        private StorageOptions StorageOptions => _storageOptions.Value;
+
         /// <summary>
         /// Process video
         /// </summary>
@@ -58,7 +69,8 @@ namespace StreamServer.Controllers
                         throw new Exception("Invalid file type.");
                     }
 
-                    var folderName = Path.Combine(Directory.GetCurrentDirectory(), "hls", video.Name.Replace(video.Extension, "").SanitizeFolderName());
+                    var folderName = Path.Combine(StorageOptions.Folder, video.Name.Replace(video.Extension, "").SanitizeFolderName());
+                    //Path.Combine(Directory.GetCurrentDirectory(), "hls", video.Name.Replace(video.Extension, "").SanitizeFolderName());
 
                     if (Directory.Exists(folderName) && Directory.GetFiles(folderName).Any())
                         Directory.Delete(folderName, true);
@@ -143,7 +155,7 @@ namespace StreamServer.Controllers
         [SwaggerResponse(200, Type = typeof(VideoReponse))]
         public async Task<IActionResult> ListVideosAsync()
         {
-            var hlsPath = Path.Combine(Directory.GetCurrentDirectory(), "hls");
+            var hlsPath = StorageOptions.Folder; //Path.Combine(Directory.GetCurrentDirectory(), "hls");
 
             var directories = Directory.GetDirectories(hlsPath)
                 .Where(d => Directory.GetFiles(d).Any(file => file.EndsWith(".m3u8")));
@@ -180,7 +192,7 @@ namespace StreamServer.Controllers
         [SwaggerResponse(400)]
         public async Task<IActionResult> HlsAsync([FromRoute] string folder, [FromRoute] string fileName)
         {
-            var file = new FileInfo(Path.Combine(Directory.GetCurrentDirectory(), "hls", folder, fileName));
+            var file = new FileInfo(Path.Combine(StorageOptions.Folder, folder, fileName)); //new FileInfo(Path.Combine(Directory.GetCurrentDirectory(), "hls", folder, fileName));
 
             if (!System.IO.File.Exists(file.FullName))
                 return BadRequest();
@@ -193,7 +205,7 @@ namespace StreamServer.Controllers
         [SwaggerResponse(400)]
         public async Task<IActionResult> HlsAsync([FromRoute] string folder, [FromRoute] string subFolder, [FromRoute] string fileName)
         {
-            var file = new FileInfo(Path.Combine(Directory.GetCurrentDirectory(), "hls", folder, subFolder, fileName));
+            var file = new FileInfo(Path.Combine(StorageOptions.Folder, folder, subFolder, fileName)); //new FileInfo(Path.Combine(Directory.GetCurrentDirectory(), "hls", folder, subFolder, fileName));
 
             if (!System.IO.File.Exists(file.FullName))
                 return BadRequest();
