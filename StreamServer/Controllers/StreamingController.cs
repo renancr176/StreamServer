@@ -1,12 +1,13 @@
-﻿using Microsoft.AspNetCore.Mvc;
+﻿using Microsoft.AspNetCore.Http.Timeouts;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Options;
 using StreamServer.Extensions;
 using StreamServer.Models.Requests;
 using StreamServer.Models.Responses;
+using StreamServer.Options;
 using Swashbuckle.AspNetCore.Annotations;
 using System.Text;
 using System.Text.RegularExpressions;
-using Microsoft.Extensions.Options;
-using StreamServer.Options;
 using Xabe.FFmpeg;
 
 namespace StreamServer.Controllers
@@ -28,6 +29,7 @@ namespace StreamServer.Controllers
         /// Process video
         /// </summary>
         [HttpPatch("ProcessVideo")]
+        [RequestTimeout(Startup.NoTimeOut)]
         [SwaggerResponse(200, Type = typeof(BaseResponse<IEnumerable<BaseResponse>>))]
         [SwaggerResponse(400, Type = typeof(BaseResponse<IEnumerable<BaseResponse>>))]
         public async Task<IActionResult> ProcessVideoAsync([FromBody] StreamingProcessVideoRequest request)
