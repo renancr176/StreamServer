@@ -179,6 +179,8 @@ namespace StreamServer.Controllers
                 {
                     Tracks = tracks,
                     Legends = Directory.GetFiles(directory)
+                        .Where(file => Regex.IsMatch(file, @"subtitles"))
+                        .SelectMany(d => Directory.GetFiles(d))
                         .Where(file => file.EndsWith(".srt"))
                         .Select(file => Regex.Replace(file, @"^.*.hls", "/Streaming/Hls", RegexOptions.IgnoreCase).Replace("\\", "/"))
                         .ToList()
