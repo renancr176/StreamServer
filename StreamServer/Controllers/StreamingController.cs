@@ -178,7 +178,7 @@ namespace StreamServer.Controllers
                     )
                 {
                     Tracks = tracks,
-                    Legends = Directory.GetFiles(directory)
+                    Legends = Directory.GetDirectories(directory)
                         .Where(file => Regex.IsMatch(file, @"subtitles"))
                         .SelectMany(d => Directory.GetFiles(d))
                         .Where(file => file.EndsWith(".srt"))
