@@ -1,7 +1,6 @@
 ﻿using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Razor;
-using Microsoft.Extensions.FileProviders;
 using Microsoft.OpenApi.Models;
 using StreamServer.Interfaces.Services;
 using StreamServer.Services;
@@ -14,7 +13,6 @@ namespace StreamServer;
 public class Startup : IStartup
 {
     readonly string MyAllowSpecificOrigins = "_myAllowSpecificOrigins";
-    public const string NoTimeOut = "NoTimeOut";
 
     public Startup(IConfiguration configuration, IWebHostEnvironment environment)
     {
@@ -37,9 +35,6 @@ public class Startup : IStartup
         //services.AddAutoMapper(typeof(Startup).GetTypeInfo().Assembly);
         services.AddHttpContextAccessor();
         services.AddHealthChecks();
-        services.AddRequestTimeouts(options => {
-            options.AddPolicy(NoTimeOut, TimeSpan.FromDays(1));
-        });
         services.AddSwaggerGen(c =>
         {
             c.SwaggerDoc("v1", new OpenApiInfo { Title = "Streaming API", Version = "v1" });

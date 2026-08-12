@@ -29,7 +29,6 @@ namespace StreamServer.Controllers
         /// Process video
         /// </summary>
         [HttpPatch("ProcessVideo")]
-        [RequestTimeout(Startup.NoTimeOut)]
         [SwaggerResponse(200, Type = typeof(BaseResponse<IEnumerable<BaseResponse>>))]
         [SwaggerResponse(400, Type = typeof(BaseResponse<IEnumerable<BaseResponse>>))]
         public async Task<IActionResult> ProcessVideoAsync([FromBody] StreamingProcessVideoRequest request)
@@ -57,8 +56,6 @@ namespace StreamServer.Controllers
             {
                 ".mpeg", ".mp4", ".mkv", ".avi"
             };
-
-            
 
             foreach (var filePath in request.FilesPath)
             {
