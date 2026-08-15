@@ -7,6 +7,7 @@ using StreamServer.Models.Responses;
 using StreamServer.Options;
 using Swashbuckle.AspNetCore.Annotations;
 using System.Text;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using Xabe.FFmpeg;
 
@@ -24,6 +25,55 @@ namespace StreamServer.Controllers
         }
 
         private StorageOptions StorageOptions => _storageOptions.Value;
+
+        private async Task<List<VideoReponse>> GetVideosAsync()
+        {
+            var videos = new List<VideoReponse>();
+
+            try
+            {
+                var hlsPath = StorageOptions.Folder; //Path.Combine(Directory.GetCurrentDirectory(), "hls");
+
+                var jsonPath = new FileInfo(Path.Combine(hlsPath, "videos.json"));
+                
+
+                if (System.IO.File.Exists(jsonPath.FullName))
+                {
+                    try
+                    {
+                        var json = await System.IO.File.ReadAllTextAsync(jsonPath.FullName);
+                        if (!string.IsNullOrEmpty(json))
+                            videos = JsonSerializer.Deserialize<List<VideoReponse>>(json) ?? new List<VideoReponse>();
+                    }
+                    catch (Exception e)
+                    {
+                    }
+                }
+            }
+            catch (Exception e)
+            {
+            }
+
+            return videos;
+        }
+
+        private async Task SaveVideosAsync(List<VideoReponse> videos)
+        {
+            try
+            {
+                var hlsPath = StorageOptions.Folder; //Path.Combine(Directory.GetCurrentDirectory(), "hls");
+                var jsonPath = new FileInfo(Path.Combine(hlsPath, "videos.json"));
+                if (System.IO.File.Exists(jsonPath.FullName))
+                {
+                    System.IO.File.Delete(jsonPath.FullName);
+                }
+                var json = JsonSerializer.Serialize(videos);
+                await System.IO.File.WriteAllTextAsync(jsonPath.FullName, json);
+            }
+            catch (Exception e)
+            {
+            }
+        }
 
         /// <summary>
         /// Process video
@@ -132,6 +182,30 @@ namespace StreamServer.Controllers
                     {
                         System.IO.File.Delete(video.FullName);
                     }
+
+                    var videoData = new VideoReponse(
+                        Path.GetFileName(folderName),
+                        $"/Streaming/Hls/{Path.GetFileName(folderName)}/playlist.m3u8"
+                        )
+                    {
+                        Tracks = Directory.GetDirectories(folderName)
+                                .Where(file => Regex.IsMatch(file, @"audio_track_\d+$"))
+                                .SelectMany(d => Directory.GetFiles(d))
+                                .Where(file => file.EndsWith(".m3u8"))
+                                .Select(file => Regex.Replace(file, @"^.*.hls", "/Streaming/Hls", RegexOptions.IgnoreCase).Replace("\\", "/"))
+                                .ToList(),
+                        Legends = Directory.GetDirectories(folderName)
+                            .Where(file => Regex.IsMatch(file, @"subtitles"))
+                            .SelectMany(d => Directory.GetFiles(d))
+                            .Where(file => file.EndsWith(".srt"))
+                            .Select(file => Regex.Replace(file, @"^.*.hls", "/Streaming/Hls", RegexOptions.IgnoreCase).Replace("\\", "/"))
+                            .ToList()
+                    };
+
+                    var videos = await GetVideosAsync();
+                    videos.Add(videoData);
+                    videos = videos.OrderBy(x => x.Name).ToList();
+                    await SaveVideosAsync(videos);
                 }
                 catch (Exception e)
                 {
@@ -154,35 +228,37 @@ namespace StreamServer.Controllers
         [SwaggerResponse(200, Type = typeof(VideoReponse))]
         public async Task<IActionResult> ListVideosAsync()
         {
-            var hlsPath = StorageOptions.Folder; //Path.Combine(Directory.GetCurrentDirectory(), "hls");
-
-            var directories = Directory.GetDirectories(hlsPath)
-                .Where(d => Directory.GetFiles(d).Any(file => file.EndsWith(".m3u8")));
-
-            var videos = new List<VideoReponse>();
-
-            foreach (var directory in directories)
+            var videos = await GetVideosAsync();
+            if (!videos.Any())
             {
-                var tracks = Directory.GetDirectories(directory)
-                    .Where(file => Regex.IsMatch(file, @"audio_track_\d+$"))
-                    .SelectMany(d => Directory.GetFiles(d))
-                    .Where(file => file.EndsWith(".m3u8"))
-                    .Select(file => Regex.Replace(file, @"^.*.hls", "/Streaming/Hls", RegexOptions.IgnoreCase).Replace("\\","/"))
-                    .ToList();
-                var video = new VideoReponse(
-                    Path.GetFileName(directory),
-                    $"/Streaming/Hls/{Path.GetFileName(directory)}/playlist.m3u8"
-                    )
+                var directories = Directory.GetDirectories(StorageOptions.Folder)
+                    .Where(d => Directory.GetFiles(d).Any(file => file.EndsWith(".m3u8")));
+
+                foreach (var directory in directories)
                 {
-                    Tracks = tracks,
-                    Legends = Directory.GetDirectories(directory)
-                        .Where(file => Regex.IsMatch(file, @"subtitles"))
+                    var tracks = Directory.GetDirectories(directory)
+                        .Where(file => Regex.IsMatch(file, @"audio_track_\d+$"))
                         .SelectMany(d => Directory.GetFiles(d))
-                        .Where(file => file.EndsWith(".srt"))
+                        .Where(file => file.EndsWith(".m3u8"))
                         .Select(file => Regex.Replace(file, @"^.*.hls", "/Streaming/Hls", RegexOptions.IgnoreCase).Replace("\\", "/"))
-                        .ToList()
-                };
-                videos.Add(video);
+                        .ToList();
+                    var video = new VideoReponse(
+                        Path.GetFileName(directory),
+                        $"/Streaming/Hls/{Path.GetFileName(directory)}/playlist.m3u8"
+                        )
+                    {
+                        Tracks = tracks,
+                        Legends = Directory.GetDirectories(directory)
+                            .Where(file => Regex.IsMatch(file, @"subtitles"))
+                            .SelectMany(d => Directory.GetFiles(d))
+                            .Where(file => file.EndsWith(".srt"))
+                            .Select(file => Regex.Replace(file, @"^.*.hls", "/Streaming/Hls", RegexOptions.IgnoreCase).Replace("\\", "/"))
+                            .ToList()
+                    };
+                    videos.Add(video);
+                }
+
+                await SaveVideosAsync(videos);
             }
 
             return Ok(videos);
