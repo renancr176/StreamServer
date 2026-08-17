@@ -9,6 +9,7 @@ public class StreamingProcessVideoRequest
     public IEnumerable<string> FilesPath { get; set; }
     public bool ExtractAudioTracks { get; set; } = false;
     public bool DeletedFileAfterProcess { get; set; } = false;
+    public bool RegiterInJson { get; set; } = true;
 
     public static ValidationResult ValidateFileExists(IEnumerable<string> filesPath)
     {

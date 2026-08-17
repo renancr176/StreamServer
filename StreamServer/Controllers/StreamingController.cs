@@ -75,6 +75,82 @@ namespace StreamServer.Controllers
             }
         }
 
+        private async Task SplitVideoAsync(
+            string inputPath,
+            string outputPart1,
+            string outputPart2,
+            TimeSpan splitAt)
+        {
+            // Obtém a duração total do arquivo
+            IMediaInfo mediaInfo = await FFmpeg.GetMediaInfo(inputPath);
+
+            TimeSpan duracaoTotal = mediaInfo.Duration;
+
+            if (splitAt >= duracaoTotal)
+                throw new ArgumentException(
+                    $"The video has only {duracaoTotal} of duration.");
+
+            // Parte 1: 00:00:00 -> 21:46
+            IConversion conversion1 =
+                await FFmpeg.Conversions.FromSnippet.Split(
+                    inputPath,
+                    outputPart1,
+                    TimeSpan.Zero,
+                    splitAt);
+
+            await conversion1.Start();
+
+            // Parte 2: 21:46 -> final
+            TimeSpan duracaoParte2 = duracaoTotal - splitAt;
+
+            IConversion conversion2 =
+                await FFmpeg.Conversions.FromSnippet.Split(
+                    inputPath,
+                    outputPart2,
+                    splitAt,
+                    duracaoParte2);
+
+            await conversion2.Start();
+        }
+
+        /// <summary>
+        /// Split video
+        /// </summary>
+        [HttpPatch("Split")]
+        [SwaggerResponse(200, Type = typeof(BaseResponse<BaseResponse>))]
+        [SwaggerResponse(400, Type = typeof(BaseResponse<BaseResponse>))]
+        public async Task<IActionResult> SplitVideoAsync([FromBody] SplitVideoRequest request)
+        {
+            var response = new BaseResponse<object>();
+            try
+            {
+                var file = new FileInfo(request.FilePath);
+                var part1 = new FileInfo(Path.Combine(file.Directory.FullName, $"{file.Name.Replace(file.Extension, "")}_part1{file.Extension}"));
+                var part2 = new FileInfo(Path.Combine(file.Directory.FullName, $"{file.Name.Replace(file.Extension, "")}_part2{file.Extension}"));
+                await SplitVideoAsync(
+                file.FullName,
+                part1.FullName,
+                part2.FullName,
+                request.SplitAt);
+
+                response.Data = new
+                {
+                    Part1 = part1.FullName,
+                    Part2 = part2.FullName
+                };
+                return Ok(response);
+            }
+            catch (Exception e)
+            {
+                response.Errors.Add(new BaseResponseError()
+                {
+                    ErrorCode = "InternalServerError",
+                    Message = e.Message
+                });
+                return BadRequest(response);
+            }
+        }
+
         /// <summary>
         /// Process video
         /// </summary>
@@ -107,7 +183,9 @@ namespace StreamServer.Controllers
                 ".mpeg", ".mp4", ".mkv", ".avi"
             };
 
-            foreach (var filePath in request.FilesPath)
+            var filesPath = request.FilesPath.ToList().OrderBy(name => name).ToList();
+
+            foreach (var filePath in filesPath)
             {
                 var baseResponse = new BaseResponse();
                 var video = new FileInfo(filePath);
@@ -202,10 +280,13 @@ namespace StreamServer.Controllers
                             .ToList()
                     };
 
-                    var videos = await GetVideosAsync();
-                    videos.Add(videoData);
-                    videos = videos.OrderBy(x => x.Name).ToList();
-                    await SaveVideosAsync(videos);
+                    if (request.RegiterInJson)
+                    {
+                        var videos = await GetVideosAsync();
+                        videos.Add(videoData);
+                        videos = videos.OrderBy(x => x.Name).ToList();
+                        await SaveVideosAsync(videos);
+                    }
                 }
                 catch (Exception e)
                 {
