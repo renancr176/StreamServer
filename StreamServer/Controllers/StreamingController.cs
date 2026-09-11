@@ -384,7 +384,7 @@ namespace StreamServer.Controllers
             {
                 videos.AddRange(await GetVideosAsync(storageFolder.Folder));    
             }
-            return Ok(videos);
+            return Ok(videos.OrderBy(x => x.Name).ToList());
         }
 
         [HttpGet("Hls/{folder}/{fileName}")]
