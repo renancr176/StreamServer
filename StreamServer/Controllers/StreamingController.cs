@@ -142,34 +142,32 @@ namespace StreamServer.Controllers
             await conversion2.Start();
         }
 
-        private static Dictionary<string, IEnumerable<string>> StorageFolders { get; set; } =
-            new Dictionary<string, IEnumerable<string>>();
+        private static List<string> VideoFolders { get; set; } = new List<string>();
 
-        private string GetStoragePathBySubDirName(string videoDirName)
+        private async Task<string> GetVideoPathAsync(string videoDirName)
         {
-            foreach (var storageOption in StorageOptions.Folders.Where(storageFolder =>
-                         !StorageFolders.ContainsKey(storageFolder.Folder)))
-            {
-                StorageFolders.Add(storageOption.Folder, Directory.GetDirectories(storageOption.Folder));
-            }
+            await Task.Delay(TimeSpan.FromSeconds(1));
 
-            var storageFolder =
-                StorageFolders.FirstOrDefault(storageFolder => 
-                    storageFolder.Value.Any(dir => dir == videoDirName)).Key;
+            var videoPath =
+                VideoFolders.FirstOrDefault(storageFolder => 
+                    storageFolder.EndsWith(videoDirName));
 
-            if (string.IsNullOrEmpty(storageFolder))
+            if (string.IsNullOrEmpty(videoPath))
             {
+                var list = new List<string>();
                 foreach (var storageOption in StorageOptions.Folders)
                 {
-                    StorageFolders[storageOption.Folder] = Directory.GetDirectories(storageOption.Folder);
+                    list.AddRange(Directory.GetDirectories(storageOption.Folder));
                 }
 
-                storageFolder =
-                    StorageFolders.FirstOrDefault(storageFolder => 
-                        storageFolder.Value.Any(dir => dir == videoDirName)).Key;
+                VideoFolders = list;
+
+                videoPath =
+                    VideoFolders.FirstOrDefault(storageFolder =>
+                    storageFolder.EndsWith(videoDirName));
             }
 
-            return storageFolder;
+            return videoPath;
         }
 
         /// <summary>
@@ -392,8 +390,8 @@ namespace StreamServer.Controllers
         [SwaggerResponse(400)]
         public async Task<IActionResult> HlsAsync([FromRoute] string folder, [FromRoute] string fileName)
         {
-            var storageFolder = GetStoragePathBySubDirName(folder);
-            var file = new FileInfo(Path.Combine(storageFolder, folder, fileName));
+            var videoPath = await GetVideoPathAsync(folder);
+            var file = new FileInfo(Path.Combine(videoPath, fileName));
 
             if (!System.IO.File.Exists(file.FullName))
                 return BadRequest();
@@ -406,8 +404,8 @@ namespace StreamServer.Controllers
         [SwaggerResponse(400)]
         public async Task<IActionResult> HlsAsync([FromRoute] string folder, [FromRoute] string subFolder, [FromRoute] string fileName)
         {
-            var storageFolder = GetStoragePathBySubDirName(folder);
-            var file = new FileInfo(Path.Combine(storageFolder, folder, subFolder, fileName));
+            var videoPath = await GetVideoPathAsync(folder);
+            var file = new FileInfo(Path.Combine(videoPath, subFolder, fileName));
 
             if (!System.IO.File.Exists(file.FullName))
                 return BadRequest();
