@@ -208,6 +208,191 @@ namespace StreamServer.Controllers
             }
         }
 
+        [HttpPatch("Join")]
+        [SwaggerResponse(200, Type = typeof(BaseResponse<BaseResponse>))]
+        [SwaggerResponse(400, Type = typeof(BaseResponse<BaseResponse>))]
+        public async Task<IActionResult> JoinVideoAsync([FromBody] JoinVideosRequest request)
+        {
+            var response = new BaseResponse<object>();
+
+            if (request.FilesPath == null || request.FilesPath.Count() < 2)
+            {
+                response.Errors.Add(new BaseResponseError()
+                {
+                    ErrorCode = "InvalidRequest",
+                    Message = "Informe pelo menos dois vídeos."
+                });
+                return BadRequest(response);
+            }
+
+            var files = request.FilesPath.ToList();
+
+            if (files.Any(string.IsNullOrWhiteSpace))
+            {
+                response.Errors.Add(new BaseResponseError()
+                {
+                    ErrorCode = "InvalidRequest",
+                    Message = "Os caminhos dos vídeos não podem ser vazios."
+                });
+                return BadRequest(response);
+            }
+
+            if (files.Any(path => !System.IO.File.Exists(path)))
+            {
+                response.Errors.Add(new BaseResponseError()
+                {
+                    ErrorCode = "InvalidRequest",
+                    Message = "Um ou mais arquivos não foram encontrados."
+                });
+                return BadRequest(response);
+            }
+
+            if (files.Any(path => !System.IO.File.Exists(path)))
+            {
+                response.Errors.Add(new BaseResponseError()
+                {
+                    ErrorCode = "InvalidRequest",
+                    Message = "Um ou mais arquivos não foram encontrados."
+                });
+                return BadRequest(response);
+            }
+
+            var tempDirectory = Path.Combine(
+                Path.GetTempPath(),
+                Guid.NewGuid().ToString("N"));
+
+            Directory.CreateDirectory(tempDirectory);
+
+            try
+            {
+                var listPath = Path.Combine(tempDirectory, "videos.txt");
+                var outputPath = Path.Combine(tempDirectory, "resultado.mp4");
+
+                // Obtém informações sobre as trilhas de cada vídeo.
+                var mediaInfos = new List<IMediaInfo>();
+
+                foreach (var file in files)
+                {
+                    mediaInfos.Add(await FFmpeg.GetMediaInfo(file));
+                }
+
+                var audioTrackCounts = mediaInfos
+                    .Select(info => info.AudioStreams.Count())
+                    .ToList();
+
+                // Verifica se todos os vídeos possuem uma trilha de vídeo.
+                if (mediaInfos.Any(info => !info.VideoStreams.Any()))
+                {
+                    return BadRequest(new
+                    {
+                        erro = "Todos os arquivos devem conter uma trilha de vídeo."
+                    });
+                }
+
+                // O concat demuxer exige estruturas de streams compatíveis.
+                if (audioTrackCounts.Distinct().Count() > 1)
+                {
+                    return BadRequest(new
+                    {
+                        erro = "Os vídeos possuem quantidades diferentes de trilhas de áudio.",
+                        trilhasPorVideo = audioTrackCounts
+                    });
+                }
+
+                var audioTrackCount = audioTrackCounts.First();
+
+                if (request.UseAudioTrack.HasValue &&
+                    request.UseAudioTrack.Value >= audioTrackCount)
+                {
+                    return BadRequest(new
+                    {
+                        erro = "A trilha de áudio selecionada não existe em todos os vídeos.",
+                        trilhasDisponiveis = audioTrackCount
+                    });
+                }
+
+                // Cria o arquivo de lista utilizado pelo FFmpeg.
+                var concatLines = files.Select(file =>
+                {
+                    var normalizedPath = Path.GetFullPath(file)
+                        .Replace("\\", "/")
+                        .Replace("'", "'\\''");
+
+                    return $"file '{normalizedPath}'";
+                });
+
+                await System.IO.File.WriteAllLinesAsync(
+                    listPath,
+                    concatLines);
+
+                var conversion = FFmpeg.Conversions.New()
+                    .AddParameter(
+                        $"-f concat -safe 0 -i \"{listPath}\"",
+                        ParameterPosition.PreInput);
+
+                // Seleciona a trilha de vídeo principal.
+                conversion.AddParameter("-map 0:v:0");
+
+                if (request.UseAudioTrack.HasValue)
+                {
+                    // Mantém somente a trilha de áudio selecionada.
+                    conversion.AddParameter(
+                        $"-map 0:a:{request.UseAudioTrack.Value}");
+                }
+                else
+                {
+                    // Mantém todas as trilhas de áudio.
+                    conversion.AddParameter("-map 0:a?");
+                }
+
+                conversion
+                    .AddParameter(
+                        "-c:v libx264 -preset veryfast -crf 23 " +
+                        "-c:a aac -b:a 192k -movflags +faststart")
+                    .SetOutput(outputPath);
+
+                await conversion.Start();
+
+                // Limpa os arquivos temporários após o envio da resposta.
+                HttpContext.Response.OnCompleted(() =>
+                {
+                    try
+                    {
+                        if (Directory.Exists(tempDirectory))
+                            Directory.Delete(tempDirectory, true);
+                    }
+                    catch
+                    {
+                        // A limpeza poderá ser feita posteriormente.
+                    }
+
+                    return Task.CompletedTask;
+                });
+
+                return Ok(response);
+            }
+            catch (Exception e)
+            {
+                try
+                {
+                    if (Directory.Exists(tempDirectory))
+                        Directory.Delete(tempDirectory, true);
+                }
+                catch
+                {
+                    // Ignora falhas na limpeza.
+                }
+
+                response.Errors.Add(new BaseResponseError()
+                {
+                    ErrorCode = "InternalServerError",
+                    Message = e.Message
+                });
+
+                return BadRequest(response);
+            }
+        }
+
         /// <summary>
         /// Process video
         /// </summary>
