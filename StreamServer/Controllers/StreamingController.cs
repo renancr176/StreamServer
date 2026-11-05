@@ -596,10 +596,13 @@ namespace StreamServer.Controllers
                         return processVideoArguments.ToString();
                     }
 
-                    await FFmpeg.Conversions.New()
+                    var convert = FFmpeg.Conversions.New()
                         .AddStream(mediaInfo.Streams)
-                        .AddParameter(BuildArguments(CopyVideoBitstreamFilter(mediaInfo.VideoStreams.FirstOrDefault()?.Codec)))
-                        .Start();
+                        .AddParameter(BuildArguments(CopyVideoBitstreamFilter(mediaInfo.VideoStreams.FirstOrDefault()?.Codec)));
+                    // NVIDIA GPU detected: decode on the GPU too (FFmpeg falls back to the CPU for unsupported formats).
+                    if (await NvencAvailableAsync())
+                        convert.AddParameter("-hwaccel cuda", ParameterPosition.PreInput);
+                    await convert.Start();
 
                     // Copied segments that can't be decoded on their own hang the player on resume/seek:
                     // generate everything again re-encoding the video.
