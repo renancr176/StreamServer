@@ -28,6 +28,8 @@ namespace StreamServer.Controllers
 
         private StorageOptions StorageOptions => _storageOptions.Value;
 
+        private static List<string> VideoFolders { get; set; } = new List<string>();
+
         private async Task<List<VideoReponse>> GetVideosAsync(string folder)
         {
             var videos = new List<VideoReponse>();
