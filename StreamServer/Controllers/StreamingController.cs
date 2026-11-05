@@ -5,7 +5,9 @@ using StreamServer.Extensions;
 using StreamServer.Models.Requests;
 using StreamServer.Models.Responses;
 using StreamServer.Options;
+using StreamServer.Services;
 using Swashbuckle.AspNetCore.Annotations;
+using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -142,7 +144,114 @@ namespace StreamServer.Controllers
             await conversion2.Start();
         }
 
-        private static List<string> VideoFolders { get; set; } = new List<string>();
+        /// <summary>
+        /// Copy mode: repeats SPS/PPS (VPS for HEVC) before every keyframe, so each HLS segment
+        /// can be decoded on its own (resume/seek). Without it, sources that carry them only at the
+        /// start produce segments that never start playing.
+        /// </summary>
+        private static string CopyVideoBitstreamFilter(string? codec) => codec?.ToLowerInvariant() switch
+        {
+            "h264" => "-bsf:v h264_mp4toannexb,dump_extra=freq=keyframe",
+            "hevc" or "h265" => "-bsf:v hevc_mp4toannexb,dump_extra=freq=keyframe",
+            _ => ""
+        };
+
+        private static bool? _nvencAvailable;
+
+        /// <summary>
+        /// Tests once whether the NVIDIA encoder (NVENC) works on this machine.
+        /// </summary>
+        private static async Task<bool> NvencAvailableAsync()
+        {
+            if (_nvencAvailable.HasValue)
+                return _nvencAvailable.Value;
+
+            try
+            {
+                await FFmpeg.Conversions.New()
+                    .AddParameter("-f lavfi -i color=c=black:s=1280x720:r=24:d=0.5 -c:v h264_nvenc -f null -")
+                    .Start();
+                _nvencAvailable = true;
+            }
+            catch (Exception e)
+            {
+                _nvencAvailable = false;
+            }
+
+            return _nvencAvailable.Value;
+        }
+
+        /// <summary>
+        /// Re-encode mode (fallback when the copied segments can't be decoded on their own):
+        /// H.264 with a keyframe every 2 s; the MPEG-TS output carries SPS/PPS on every keyframe.
+        /// Uses the NVIDIA GPU (h264_nvenc) when available, otherwise the CPU (libx264).
+        /// </summary>
+        private static async Task<string> ReencodeVideoParametersAsync()
+        {
+            const string keyFrames = "-force_key_frames \"expr:gte(t,n_forced*2)\"";
+
+            return await NvencAvailableAsync()
+                ? $"-c:v h264_nvenc -preset p5 -tune hq -rc vbr -cq 21 -b:v 0 -maxrate 8M -bufsize 16M -spatial-aq 1 -profile:v high -pix_fmt yuv420p -forced-idr 1 {keyFrames}"
+                : $"-c:v libx264 -preset medium -crf 20 -maxrate 8M -bufsize 16M -profile:v high -pix_fmt yuv420p -sc_threshold 0 {keyFrames}";
+        }
+
+        /// <summary>
+        /// Checks that segments other than the first decode on their own (width found by ffprobe).
+        /// </summary>
+        private static async Task<bool> HlsSegmentsDecodableAsync(string folderName)
+        {
+            var playlist = Path.Combine(folderName, "playlist.m3u8");
+            if (!System.IO.File.Exists(playlist))
+                return false;
+
+            var segments = (await System.IO.File.ReadAllLinesAsync(playlist))
+                .Where(line => !string.IsNullOrWhiteSpace(line) && !line.StartsWith("#"))
+                .ToList();
+
+            if (segments.Count < 2)
+                return true;
+
+            var samples = new[] { 1, segments.Count / 2, segments.Count - 2 }
+                .Where(index => index > 0)
+                .Distinct();
+
+            var ffprobe = Path.Combine(FFmpeg.ExecutablesPath ?? FFmpegService.FFmpegPath, "ffprobe.exe");
+
+            foreach (var index in samples)
+            {
+                // Decodes the first 2 s: a broken segment reports "0,N/A", a good one "1920,48".
+                using var process = Process.Start(new ProcessStartInfo(ffprobe,
+                    $"-v error -select_streams v:0 -read_intervals %+2 -count_frames -show_entries stream=width,nb_read_frames -of csv=p=0 \"{Path.Combine(folderName, segments[index])}\"")
+                {
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                });
+
+                if (process == null)
+                    return false;
+
+                var stdout = process.StandardOutput.ReadToEndAsync();
+                var stderr = process.StandardError.ReadToEndAsync();
+                await process.WaitForExitAsync();
+
+                var values = ((await stdout).Split('\n', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? "")
+                    .Trim()
+                    .Split(',');
+                await stderr;
+
+                if (values.Length < 2
+                    || !int.TryParse(values[0], out var width) || width <= 0
+                    || !int.TryParse(values[1], out var frames) || frames <= 0)
+                    return false;
+            }
+
+            return true;
+        }
+
+        private static Dictionary<string, IEnumerable<string>> StorageFolders { get; set; } =
+            new Dictionary<string, IEnumerable<string>>();
 
         private async Task<string> GetVideoPathAsync(string videoDirName)
         {
@@ -460,33 +569,57 @@ namespace StreamServer.Controllers
 
                     var mediaInfo = await FFmpeg.GetMediaInfo(video.FullName);
 
-                    var processVideoArguments = new StringBuilder();
-
-                    if (request.ExtractAudioTracks)
+                    string BuildArguments(string videoParameters)
                     {
-                        processVideoArguments.Append(
-                            $"-map 0:v:0 -codec: copy -an -sn -hls_time 10 -hls_playlist_type vod \"{Path.Combine(folderName, "playlist.m3u8")}\"");
+                        var processVideoArguments = new StringBuilder();
 
-                        var trackIndex = 0;
-                        foreach (var mediaInfoAudioStream in mediaInfo.AudioStreams)
+                        if (request.ExtractAudioTracks)
                         {
                             processVideoArguments.Append(
-                                $" -map 0:a:{trackIndex} -vn -q:a 0 \"{Path.Combine(folderName, $"audio_track_{trackIndex + 1}.mp3")}\"");
-                            trackIndex++;
+                                $"-map 0:v:0 -codec: copy {videoParameters} -an -sn -hls_time 10 -hls_playlist_type vod \"{Path.Combine(folderName, "playlist.m3u8")}\"");
+
+                            var trackIndex = 0;
+                            foreach (var mediaInfoAudioStream in mediaInfo.AudioStreams)
+                            {
+                                processVideoArguments.Append(
+                                    $" -map 0:a:{trackIndex} -vn -q:a 0 \"{Path.Combine(folderName, $"audio_track_{trackIndex + 1}.mp3")}\"");
+                                trackIndex++;
+                            }
                         }
-                    }
-                    else
-                    {
-                        processVideoArguments.Append($"-codec: copy -sn -hls_time 10 -hls_playlist_type vod \"{Path.Combine(folderName, "playlist.m3u8")}\"");
+                        else
+                        {
+                            processVideoArguments.Append($"-codec: copy {videoParameters} -sn -hls_time 10 -hls_playlist_type vod \"{Path.Combine(folderName, "playlist.m3u8")}\"");
+                        }
+
+                        return processVideoArguments.ToString();
                     }
 
-                    var args = processVideoArguments.ToString();
                     await FFmpeg.Conversions.New()
                         .AddStream(mediaInfo.Streams)
-                        //.AddParameter($"-codec: copy -hls_time 10 -hls_playlist_type vod \"{Path.Combine(folderName, "playlist.m3u8")}\"")
-                        //.AddParameter($"-map 0:v:0 -codec: copy -an -hls_time 10 -hls_playlist_type vod \"{Path.Combine(folderName, "playlist.m3u8")}\" -map 0:a:0 -vn -q:a 0 \"{Path.Combine(folderName, "audio_track_1.mp3")}\" -map 0:a:1 -vn -q:a 0 \"{Path.Combine(folderName, "audio_track_2.mp3")}\"")
-                        .AddParameter(args)
+                        .AddParameter(BuildArguments(CopyVideoBitstreamFilter(mediaInfo.VideoStreams.FirstOrDefault()?.Codec)))
                         .Start();
+
+                    // Copied segments that can't be decoded on their own hang the player on resume/seek:
+                    // generate everything again re-encoding the video.
+                    if (!await HlsSegmentsDecodableAsync(folderName))
+                    {
+                        foreach (var file in Directory.GetFiles(folderName))
+                            System.IO.File.Delete(file);
+
+                        var reencode = FFmpeg.Conversions.New();
+
+                        // NVIDIA GPU detected: decode on the GPU too (FFmpeg falls back to the CPU for unsupported formats).
+                        if (await NvencAvailableAsync())
+                            reencode.AddParameter("-hwaccel cuda", ParameterPosition.PreInput);
+
+                        await reencode
+                            .AddStream(mediaInfo.Streams)
+                            .AddParameter(BuildArguments(await ReencodeVideoParametersAsync()))
+                            .Start();
+
+                        if (!await HlsSegmentsDecodableAsync(folderName))
+                            throw new Exception("HLS segments can't be decoded on their own, even after re-encoding the video.");
+                    }
 
                     var tracks = Directory.GetFiles(folderName)
                         .Where(file => Regex.IsMatch(file, @"audio_track_\d+\.mp3$"))
