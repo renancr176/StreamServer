@@ -215,7 +215,7 @@ namespace StreamServer.Controllers
         {
             var response = new BaseResponse<object>();
 
-            if (request.FilesPath == null || request.FilesPath.Count() < 2)
+            if (request?.FilesPath == null || request.FilesPath.Count() < 2)
             {
                 response.Errors.Add(new BaseResponseError()
                 {
@@ -225,9 +225,7 @@ namespace StreamServer.Controllers
                 return BadRequest(response);
             }
 
-            var files = request.FilesPath.ToList();
-
-            if (files.Any(string.IsNullOrWhiteSpace))
+            if (request.FilesPath.Any(string.IsNullOrWhiteSpace))
             {
                 response.Errors.Add(new BaseResponseError()
                 {
@@ -237,7 +235,9 @@ namespace StreamServer.Controllers
                 return BadRequest(response);
             }
 
-            if (files.Any(path => !System.IO.File.Exists(path)))
+            var files = request.FilesPath.Select(path => new FileInfo(path)).ToList();
+
+            if (files.Any(file => !System.IO.File.Exists(file.FullName)))
             {
                 response.Errors.Add(new BaseResponseError()
                 {
@@ -247,7 +247,7 @@ namespace StreamServer.Controllers
                 return BadRequest(response);
             }
 
-            if (files.Any(path => !System.IO.File.Exists(path)))
+            if (files.Any(file => !System.IO.File.Exists(file.FullName)))
             {
                 response.Errors.Add(new BaseResponseError()
                 {
@@ -266,14 +266,14 @@ namespace StreamServer.Controllers
             try
             {
                 var listPath = Path.Combine(tempDirectory, "videos.txt");
-                var outputPath = Path.Combine(tempDirectory, "resultado.mp4");
+                var outputPath = Path.Combine(files.First().Directory.FullName, $"joined_video_{DateTime.Now.ToFileTime()}.mp4");
 
                 // Obtém informações sobre as trilhas de cada vídeo.
                 var mediaInfos = new List<IMediaInfo>();
 
                 foreach (var file in files)
                 {
-                    mediaInfos.Add(await FFmpeg.GetMediaInfo(file));
+                    mediaInfos.Add(await FFmpeg.GetMediaInfo(file.FullName));
                 }
 
                 var audioTrackCounts = mediaInfos
@@ -314,7 +314,7 @@ namespace StreamServer.Controllers
                 // Cria o arquivo de lista utilizado pelo FFmpeg.
                 var concatLines = files.Select(file =>
                 {
-                    var normalizedPath = Path.GetFullPath(file)
+                    var normalizedPath = Path.GetFullPath(file.FullName)
                         .Replace("\\", "/")
                         .Replace("'", "'\\''");
 
