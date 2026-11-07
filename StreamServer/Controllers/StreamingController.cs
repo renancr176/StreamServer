@@ -590,14 +590,19 @@ namespace StreamServer.Controllers
                         }
                         else
                         {
-                            processVideoArguments.Append($"-codec: copy {videoParameters} -sn -hls_time 10 -hls_playlist_type vod \"{Path.Combine(folderName, "playlist.m3u8")}\"");
+                            processVideoArguments.Append($"-map 0:v:0 -map 0:a? -codec: copy {videoParameters} -sn -hls_time 10 -hls_playlist_type vod \"{Path.Combine(folderName, "playlist.m3u8")}\"");
                         }
 
                         return processVideoArguments.ToString();
                     }
 
+                    // The input goes in as "-i" instead of AddStream(): AddStream also adds "-map" for every
+                    // stream of the file, which put the cover image (mjpeg) and a second copy of the video in
+                    // the HLS segments. The "-map" options in BuildArguments choose exactly what goes out.
+                    var input = $"-i \"{video.FullName}\"";
+
                     await FFmpeg.Conversions.New()
-                        .AddStream(mediaInfo.Streams)
+                        .AddParameter(input, ParameterPosition.PreInput)
                         .AddParameter(BuildArguments(CopyVideoBitstreamFilter(mediaInfo.VideoStreams.FirstOrDefault()?.Codec)))
                         .Start();
 
@@ -611,11 +616,12 @@ namespace StreamServer.Controllers
                         var reencode = FFmpeg.Conversions.New();
 
                         // NVIDIA GPU detected: decode on the GPU too (FFmpeg falls back to the CPU for unsupported formats).
+                        // Must come before "-i".
                         if (await NvencAvailableAsync())
                             reencode.AddParameter("-hwaccel cuda", ParameterPosition.PreInput);
 
                         await reencode
-                            .AddStream(mediaInfo.Streams)
+                            .AddParameter(input, ParameterPosition.PreInput)
                             .AddParameter(BuildArguments(await ReencodeVideoParametersAsync()))
                             .Start();
 
