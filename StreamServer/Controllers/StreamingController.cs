@@ -1,5 +1,4 @@
-﻿using Microsoft.AspNetCore.Http.Timeouts;
-using Microsoft.AspNetCore.Mvc;
+﻿using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 using StreamServer.Extensions;
 using StreamServer.Models.Requests;
@@ -12,6 +11,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Xabe.FFmpeg;
+using Xabe.FFmpeg.Exceptions;
 
 namespace StreamServer.Controllers
 {
@@ -601,19 +601,39 @@ namespace StreamServer.Controllers
                     // the HLS segments. The "-map" options in BuildArguments choose exactly what goes out.
                     var input = $"-i \"{video.FullName}\"";
 
-                    await FFmpeg.Conversions.New()
-                        .AddParameter(input, ParameterPosition.PreInput)
-                        .AddParameter(BuildArguments(CopyVideoBitstreamFilter(mediaInfo.VideoStreams.FirstOrDefault()?.Codec)))
-                        .Start();
+                    // Only H.264/HEVC can be copied into HLS. Other codecs (e.g. XviD/mpeg4 in AVI) aren't played
+                    // by the app, and AVI packets have no pts, so the copy fails with "first pts and dts value must be set".
+                    var videoCodec = mediaInfo.VideoStreams.FirstOrDefault()?.Codec?.ToLowerInvariant();
+                    var copied = false;
 
-                    // Copied segments that can't be decoded on their own hang the player on resume/seek:
-                    // generate everything again re-encoding the video.
-                    if (!await HlsSegmentsDecodableAsync(folderName))
+                    if (videoCodec is "h264" or "hevc" or "h265")
+                    {
+                        try
+                        {
+                            await FFmpeg.Conversions.New()
+                                .AddParameter(input, ParameterPosition.PreInput)
+                                .AddParameter(BuildArguments(CopyVideoBitstreamFilter(videoCodec)))
+                                .Start();
+
+                            // Copied segments that can't be decoded on their own hang the player on resume/seek.
+                            copied = await HlsSegmentsDecodableAsync(folderName);
+                        }
+                        catch (ConversionException)
+                        {
+                            // Copy failed: falls back to re-encoding below.
+                        }
+                    }
+
+                    // Generate everything again re-encoding the video.
+                    if (!copied)
                     {
                         foreach (var file in Directory.GetFiles(folderName))
                             System.IO.File.Delete(file);
 
                         var reencode = FFmpeg.Conversions.New();
+
+                        // Creates the timestamps missing from AVI packets.
+                        reencode.AddParameter("-fflags +genpts", ParameterPosition.PreInput);
 
                         // NVIDIA GPU detected: decode on the GPU too (FFmpeg falls back to the CPU for unsupported formats).
                         // Must come before "-i".
