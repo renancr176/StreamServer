@@ -7,6 +7,7 @@ using StreamServer.Options;
 using StreamServer.Services;
 using Swashbuckle.AspNetCore.Annotations;
 using System.Diagnostics;
+using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -112,7 +113,8 @@ namespace StreamServer.Controllers
             string inputPath,
             string outputPart1,
             string outputPart2,
-            TimeSpan splitAt)
+            TimeSpan splitAt,
+            bool exact)
         {
             // Obtém a duração total do arquivo
             IMediaInfo mediaInfo = await FFmpeg.GetMediaInfo(inputPath);
@@ -123,27 +125,115 @@ namespace StreamServer.Controllers
                 throw new ArgumentException(
                     $"The video has only {duracaoTotal} of duration.");
 
-            // Parte 1: 00:00:00 -> 21:46
-            IConversion conversion1 =
-                await FFmpeg.Conversions.FromSnippet.Split(
-                    inputPath,
-                    outputPart1,
-                    TimeSpan.Zero,
-                    splitAt);
+            var input = $"-i \"{inputPath}\"";
 
-            await conversion1.Start();
+            if (!exact)
+            {
+                // Cópia (sem recodificar): leva segundos e não perde qualidade. A parte 2 precisa começar num
+                // quadro-chave, então as duas partes são cortadas no último quadro-chave antes de "splitAt"
+                // (sem repetir nem perder trechos).
+                var cutAt = await LastKeyframeAtOrBeforeAsync(inputPath, splitAt) ?? splitAt;
+                if (cutAt <= TimeSpan.Zero)
+                    throw new ArgumentException($"There is no keyframe before {splitAt}; use \"exact\": true.");
 
-            // Parte 2: 21:46 -> final
-            TimeSpan duracaoParte2 = duracaoTotal - splitAt;
+                await FFmpeg.Conversions.New()
+                    .AddParameter(input, ParameterPosition.PreInput)
+                    .AddParameter($"-t {Seconds(cutAt)} -map 0 -c copy \"{outputPart1}\"")
+                    .SetOverwriteOutput(true)
+                    .Start();
 
-            IConversion conversion2 =
-                await FFmpeg.Conversions.FromSnippet.Split(
-                    inputPath,
-                    outputPart2,
-                    splitAt,
-                    duracaoParte2);
+                // "-ss" antes do "-i" posiciona direto no quadro-chave (+1 ms para não voltar ao anterior por arredondamento).
+                await FFmpeg.Conversions.New()
+                    .AddParameter($"-ss {Seconds(cutAt + TimeSpan.FromMilliseconds(1))}", ParameterPosition.PreInput)
+                    .AddParameter(input, ParameterPosition.PreInput)
+                    .AddParameter($"-map 0 -c copy -avoid_negative_ts make_zero \"{outputPart2}\"")
+                    .SetOverwriteOutput(true)
+                    .Start();
 
-            await conversion2.Start();
+                return;
+            }
+
+            // Corte exato: recodifica o vídeo (GPU NVIDIA quando disponível); áudio e legendas são copiados.
+            var gpu = await NvencAvailableAsync();
+            var outputParameters = $"-map 0:v:0 -map 0:a? -map 0:s? {await ReencodeVideoParametersAsync()} -c:a copy -c:s copy";
+
+            var part1 = FFmpeg.Conversions.New();
+            if (gpu)
+                part1.AddParameter("-hwaccel cuda", ParameterPosition.PreInput);
+            await part1
+                .AddParameter(input, ParameterPosition.PreInput)
+                .AddParameter($"-t {Seconds(splitAt)} {outputParameters} \"{outputPart1}\"")
+                .SetOverwriteOutput(true)
+                .Start();
+
+            var part2 = FFmpeg.Conversions.New();
+            if (gpu)
+                part2.AddParameter("-hwaccel cuda", ParameterPosition.PreInput);
+            await part2
+                .AddParameter($"-ss {Seconds(splitAt)}", ParameterPosition.PreInput)
+                .AddParameter(input, ParameterPosition.PreInput)
+                .AddParameter($"{outputParameters} \"{outputPart2}\"")
+                .SetOverwriteOutput(true)
+                .Start();
+        }
+
+        private static string Seconds(TimeSpan time) =>
+            time.TotalSeconds.ToString("0.000", CultureInfo.InvariantCulture);
+
+        private static string FfprobePath =>
+            Path.Combine(FFmpeg.ExecutablesPath ?? FFmpegService.FFmpegPath, "ffprobe.exe");
+
+        /// <summary>
+        /// Time of the last video keyframe at or before <paramref name="time"/> (looks at the previous 60 s).
+        /// </summary>
+        private static async Task<TimeSpan?> LastKeyframeAtOrBeforeAsync(string inputPath, TimeSpan time)
+        {
+            var from = time - TimeSpan.FromSeconds(60);
+            if (from < TimeSpan.Zero)
+                from = TimeSpan.Zero;
+
+            using var process = Process.Start(new ProcessStartInfo(FfprobePath,
+                $"-v error -select_streams v:0 -skip_frame nokey -read_intervals {Seconds(from)}%{Seconds(time + TimeSpan.FromMilliseconds(1))} " +
+                $"-show_entries frame=best_effort_timestamp_time -of csv=p=0 \"{inputPath}\"")
+            {
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            });
+
+            if (process == null)
+                return null;
+
+            var stdout = process.StandardOutput.ReadToEndAsync();
+            var stderr = process.StandardError.ReadToEndAsync();
+            await process.WaitForExitAsync();
+            await stderr;
+
+            var keyframes = (await stdout)
+                .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Select(line => double.TryParse(line.TrimEnd(','), NumberStyles.Float, CultureInfo.InvariantCulture, out var seconds)
+                    ? TimeSpan.FromSeconds(seconds)
+                    : (TimeSpan?)null)
+                .Where(t => t.HasValue && t.Value <= time)
+                .ToList();
+
+            return keyframes.Count == 0 ? null : keyframes.Max();
+        }
+
+        /// <summary>
+        /// Videos can be joined without re-encoding when every file has the same video and audio formats.
+        /// </summary>
+        private static bool SameStreamLayout(IReadOnlyList<IMediaInfo> mediaInfos)
+        {
+            string Layout(IMediaInfo info)
+            {
+                var video = info.VideoStreams.First();
+                var audios = info.AudioStreams.Select(a => $"{a.Codec}/{a.SampleRate}/{a.Channels}");
+                return $"{video.Codec}/{video.Width}x{video.Height}/{video.PixelFormat}/{Math.Round(video.Framerate, 2)}|{string.Join("|", audios)}";
+            }
+
+            return mediaInfos.Select(Layout).Distinct().Count() == 1;
         }
 
         /// <summary>
@@ -299,7 +389,8 @@ namespace StreamServer.Controllers
                 file.FullName,
                 part1.FullName,
                 part2.FullName,
-                request.SplitAt);
+                request.SplitAt,
+                request.Exact);
 
                 response.Data = new
                 {
@@ -436,33 +527,83 @@ namespace StreamServer.Controllers
                     listPath,
                     concatLines);
 
-                var conversion = FFmpeg.Conversions.New()
-                    .AddParameter(
-                        $"-f concat -safe 0 -i \"{listPath}\"",
-                        ParameterPosition.PreInput);
+                // Mesmos formatos (ex.: partes geradas pelo Split): junta copiando, em segundos e sem perder qualidade,
+                // no mesmo tipo de arquivo de origem. Formatos diferentes: recodifica (GPU NVIDIA quando disponível).
+                var copy = SameStreamLayout(mediaInfos);
+                var gpu = !copy && await NvencAvailableAsync();
 
-                // Seleciona a trilha de vídeo principal.
-                conversion.AddParameter("-map 0:v:0");
+                if (copy)
+                    outputPath = Path.ChangeExtension(outputPath, files.First().Extension);
 
-                if (request.UseAudioTrack.HasValue)
+                var conversion = FFmpeg.Conversions.New();
+
+                // Mantém somente a trilha de áudio selecionada ou todas.
+                var audioTracks = request.UseAudioTrack.HasValue
+                    ? new List<int> { request.UseAudioTrack.Value }
+                    : Enumerable.Range(0, audioTrackCount).ToList();
+
+                if (copy)
                 {
-                    // Mantém somente a trilha de áudio selecionada.
-                    conversion.AddParameter(
-                        $"-map 0:a:{request.UseAudioTrack.Value}");
+                    // Concat demuxer: lê os arquivos em sequência, como se fossem um só.
+                    conversion
+                        .AddParameter($"-f concat -safe 0 -i \"{listPath}\"", ParameterPosition.PreInput)
+                        .AddParameter($"-map 0:v:0 {string.Join(" ", audioTracks.Select(t => $"-map 0:a:{t}"))} -c copy");
                 }
                 else
                 {
-                    // Mantém todas as trilhas de áudio.
-                    conversion.AddParameter("-map 0:a?");
+                    // Formatos diferentes (ex.: H.264 + XviD, outra resolução): o concat demuxer não troca de codec no
+                    // meio do arquivo. O filtro concat decodifica cada vídeo e os iguala ao primeiro (resolução com
+                    // barras pretas se preciso, fps, áudio) antes de juntar.
+                    foreach (var file in files)
+                    {
+                        // Decodifica na GPU também (o FFmpeg volta para a CPU nos formatos que ela não suporta). Antes de cada "-i".
+                        conversion.AddParameter($"{(gpu ? "-hwaccel cuda " : "")}-i \"{file.FullName}\"", ParameterPosition.PreInput);
+                    }
+
+                    var first = mediaInfos[0].VideoStreams.First();
+                    var width = first.Width / 2 * 2;
+                    var height = first.Height / 2 * 2;
+                    var fps = (first.Framerate > 0 ? first.Framerate : 24).ToString("0.###", CultureInfo.InvariantCulture);
+                    var channels = audioTracks
+                        .Select(t => mediaInfos[0].AudioStreams.ElementAt(t).Channels >= 6 ? "5.1" : "stereo")
+                        .ToList();
+
+                    var filter = new StringBuilder();
+                    var segments = new StringBuilder();
+                    for (var i = 0; i < files.Count; i++)
+                    {
+                        filter.Append($"[{i}:v:0]scale={width}:{height}:force_original_aspect_ratio=decrease," +
+                                      $"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps={fps},format=yuv420p[v{i}];");
+                        segments.Append($"[v{i}]");
+
+                        for (var a = 0; a < audioTracks.Count; a++)
+                        {
+                            filter.Append($"[{i}:a:{audioTracks[a]}]aresample=48000,aformat=channel_layouts={channels[a]}[a{i}_{a}];");
+                            segments.Append($"[a{i}_{a}]");
+                        }
+                    }
+
+                    var outputs = "[v]" + string.Concat(audioTracks.Select((_, a) => $"[a{a}]"));
+                    filter.Append($"{segments}concat=n={files.Count}:v=1:a={audioTracks.Count}{outputs}");
+
+                    var filterPath = Path.Combine(tempDirectory, "filter.txt");
+                    await System.IO.File.WriteAllTextAsync(filterPath, filter.ToString());
+
+                    conversion.AddParameter(
+                        $"-filter_complex_script \"{filterPath}\" -map \"[v]\" " +
+                        string.Concat(audioTracks.Select((_, a) => $"-map \"[a{a}]\" ")) +
+                        $"{await ReencodeVideoParametersAsync()} -c:a aac -b:a 192k -movflags +faststart");
                 }
 
-                conversion
-                    .AddParameter(
-                        "-c:v libx264 -preset veryfast -crf 23 " +
-                        "-c:a aac -b:a 192k -movflags +faststart")
-                    .SetOutput(outputPath);
+                conversion.SetOutput(outputPath);
 
                 await conversion.Start();
+
+                response.Data = new
+                {
+                    Output = outputPath,
+                    Mode = copy ? "copy" : gpu ? "gpu" : "cpu"
+                };
 
                 // Limpa os arquivos temporários após o envio da resposta.
                 HttpContext.Response.OnCompleted(() =>
